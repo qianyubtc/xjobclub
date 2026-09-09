@@ -5,6 +5,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+线上：**https://tuil.me**
+
 **本项目为社区项目，与 X / Binance 无任何关联。** 名称中的 X、币安仅用于描述所对接的平台，不代表官方授权或合作。
 
 ---
@@ -77,7 +79,7 @@ sequenceDiagram
 ## 快速开始
 
 ```bash
-git clone https://github.com/qianyubtc/xjobclub && cd xjobclub
+git clone https://github.com/qianyubtc/xjobclub.git && cd xjobclub
 cp config.example.env config.env      # 至少填 ADMIN_HANDLES；有网关再填 BPG_URL / BPG_KEY
 go build -o xjobclub . && ./xjobclub -config config.env
 ```
