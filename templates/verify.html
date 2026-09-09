@@ -1,0 +1,57 @@
+{{define "title"}}{{if eq .Purpose "reset"}}用 X 找回密码{{else}}注册{{end}} · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="narrow">
+{{if eq .Step 1}}
+<section class="card">
+  <h1>{{if eq .Purpose "reset"}}🔑 用 X 找回密码{{else}}📣 用 X 账号注册{{end}}</h1>
+  <p class="muted small">{{if eq .Purpose "reset"}}发一条带验证码的推文证明是你本人，就能重设密码。{{else}}不用邮箱不用手机：发一条带验证码的推文，用户名就是你的 X 用户名，一个 X 账号一个账号。{{end}}</p>
+  {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  {{if .InApp}}<div class="notice warn">📱 你正在 App 内置浏览器里，一键发帖可能拉不起来、发完回来也可能丢状态。<b>建议点右上角「⋯」选「在浏览器中打开」</b>再操作。<div class="btns"><button type="button" class="btn sec sm copy" data-copy="{{.BaseURL}}{{if eq .Purpose "reset"}}/reset{{else}}/register{{end}}">复制本页链接</button></div></div>{{end}}
+  <div class="steps">
+    <div class="step">
+      <h2>发一条推文，带上验证码 <span class="code">{{.Code}}</span></h2>
+      <label>推文内容（可以改，只要保留验证码）<span class="count"><button type="button" class="copy" id="nextText">换一条</button></span></label>
+      <textarea id="tweetText" rows="3" maxlength="280">{{index .Texts 0}}</textarea>
+      <div class="btns">
+        <a class="btn" id="intent" href="{{.IntentURL}}" target="_blank" rel="noopener">🐦 一键去 X 发帖</a>
+        <button type="button" class="btn sec copy" data-copy-from="tweetText">复制文案</button>
+      </div>
+      <a id="intentAlt" href="{{.IntentURL}}" target="_blank" rel="noopener" hidden class="hint altlink">没拉起 X App？点这里用网页版发 →</a>
+      <div class="hint">验证码大小写不限，24 小时内有效。验证完可以删掉这条推文。</div>
+    </div>
+    <div class="step">
+      <h2>把推文链接贴回来</h2>
+      <form method="post" action="{{if eq .Purpose "reset"}}/reset/verify{{else}}/register/verify{{end}}">
+        <input type="hidden" name="code" value="{{.Code}}">
+        <label for="tweetUrl">推文链接</label>
+        <input id="tweetUrl" name="tweet_url" placeholder="https://x.com/你的名字/status/1234567890" value="{{.TweetURL}}" required autocapitalize="off" autocomplete="off">
+        <button class="btn" type="submit" style="margin-top:12px">验证</button>
+      </form>
+      <div class="hint">推文发出后，点推文右上角「分享 → 复制链接」即可。</div>
+    </div>
+  </div>
+  <div class="hint" style="margin-top:14px">{{if eq .Purpose "reset"}}还没注册？<a href="/register">去注册</a>{{else}}已经注册过？<a href="/login">登录</a> · 忘了密码？<a href="/reset">用 X 找回</a>{{end}}</div>
+</section>
+{{else}}
+<section class="card">
+  <h1>{{if eq .Purpose "reset"}}🔑 设置新密码{{else}}✅ X 验证通过，设置密码{{end}}</h1>
+  <div class="userline" style="margin:6px 0 12px">{{if .AvatarURL}}<img class="av lg" src="{{.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="av lg">{{initial .Prof.Handle}}</span>{{end}}<span><b>{{.Prof.Name}}</b><br><span class="muted small">@{{.Prof.Handle}} · 用户名就是它</span></span></div>
+  {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  <form method="post" action="{{if eq .Purpose "reset"}}/reset{{else}}/register{{end}}">
+    <input type="hidden" name="code" value="{{.Code}}">
+    <div class="grid2">
+      <div><label for="pw1">{{if eq .Purpose "reset"}}新密码{{else}}密码{{end}}（至少 8 位）</label><input id="pw1" name="password" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></div>
+      <div><label for="pw2">再输一遍</label><input id="pw2" name="password2" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></div>
+    </div>
+    <button class="btn" type="submit" style="margin-top:16px">{{if eq .Purpose "reset"}}保存并登录{{else}}完成注册{{end}}</button>
+    {{if ne .Purpose "reset"}}<div class="hint" style="margin-top:10px">以后用「X 用户名 + 密码」登录；忘了可以再发推找回。注册后先绑定币安 UID 才能接单或发布。</div>{{end}}
+  </form>
+</section>
+{{end}}
+</div>
+{{end}}
+{{define "scripts"}}{{if eq .Step 1}}<script>
+(function(){var TEXTS={{json .Texts}},i=0,ta=document.getElementById('tweetText'),link=document.getElementById('intent'),nx=document.getElementById('nextText'),alt=document.getElementById('intentAlt');
+  var sync=window.bindIntent(link,function(){return ta.value},alt);ta.addEventListener('input',sync);
+  if(nx)nx.addEventListener('click',function(){i=(i+1)%TEXTS.length;ta.value=TEXTS[i];sync()});})();
+</script>{{end}}{{end}}

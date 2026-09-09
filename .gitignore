@@ -1,0 +1,12 @@
+config.env
+*.db
+*.db-wal
+*.db-shm
+uploads/
+backups/
+xjobclub
+xjobclub-linux-amd64
+CLAUDE.md
+.internal/
+*.log
+.DS_Store

@@ -1,0 +1,364 @@
+package main
+
+import (
+	"encoding/base64"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	qrcode "github.com/skip2/go-qrcode"
+)
+
+type subPage struct {
+	Base
+	X          *Submission
+	T          *Task
+	Worker     *User
+	Owner      *User
+	IsWorker   bool
+	IsOwner    bool
+	Content    string
+	IntentURL  string
+	Timeline   []AuditRow
+	Actors     map[int64]*User
+	Payments   []*Payment
+	ActivePay  *Payment
+	QR         string
+	Payee      *PayProfile
+	Dispute    *Dispute
+	Disputes   []*Dispute
+	CanSubmit  bool
+	CanPay     bool
+	CanMark    bool
+	CanConfirm bool
+	DisputeOK  []string // 当前身份可发起的申诉类型
+	Err        string
+	Amount     string // 应付金额（含少付时的差额）
+	TopupE8    int64
+	Cfg        *Config
+}
+
+func (a *App) loadSub(w http.ResponseWriter, r *http.Request) (*Submission, *Task, *User, bool) {
+	u := a.currentUser(r)
+	x, err := a.st.GetSubByCode(r.PathValue("code"))
+	if err != nil {
+		a.fail(w, r, err)
+		return nil, nil, nil, false
+	}
+	if x == nil {
+		a.errorPage(w, r, http.StatusNotFound, "记录不存在", "")
+		return nil, nil, nil, false
+	}
+	t, _ := a.st.GetTaskByID(x.TaskID)
+	if t == nil {
+		a.errorPage(w, r, http.StatusNotFound, "记录不存在", "")
+		return nil, nil, nil, false
+	}
+	// 只有当事双方、管理员、受邀陪审员（通过申诉页）能看
+	if u == nil || (u.ID != x.WorkerID && u.ID != t.OwnerID && !a.isAdmin(u)) {
+		if u == nil && r.Method == http.MethodGet {
+			http.Redirect(w, r, "/login?next="+r.URL.RequestURI(), http.StatusFound)
+			return nil, nil, nil, false
+		}
+		a.errorPage(w, r, http.StatusNotFound, "记录不存在", "")
+		return nil, nil, nil, false
+	}
+	return x, t, u, true
+}
+
+// disputeOptions 当前身份在当前状态下可发起的申诉类型。
+func (a *App) disputeOptions(x *Submission, t *Task, u *User) []string {
+	var out []string
+	if open, _ := a.st.OpenDisputeForSub(x.ID); open != nil {
+		return out
+	}
+	if u.ID == x.WorkerID {
+		switch {
+		case x.Status == SOverdue:
+			out = append(out, "A")
+		case x.Status == SAwait:
+			out = append(out, "B")
+		case x.Status == SClaimed && x.LastError != "" && x.VerifyAttempts > 0:
+			out = append(out, "C")
+		}
+	}
+	if u.ID == t.OwnerID && x.Status == SPayable && strings.HasPrefix(x.RecheckFlag, "复检未确认") {
+		out = append(out, "D")
+	}
+	return out
+}
+
+func qrBase64(link string) string {
+	if link == "" {
+		return ""
+	}
+	png, err := qrcode.Encode(link, qrcode.Medium, 220)
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(png)
+}
+
+func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission, t *Task, u *User, errMsg string) subPage {
+	p := subPage{Base: a.base(w, r), X: x, T: t, Err: errMsg, Actors: map[int64]*User{}, Cfg: a.cfg}
+	p.Worker, _ = a.st.GetUserByID(x.WorkerID)
+	p.Owner, _ = a.st.GetUserByID(t.OwnerID)
+	p.IsWorker = u.ID == x.WorkerID
+	p.IsOwner = u.ID == t.OwnerID || a.isAdmin(u)
+	if int(x.VariantIdx) < len(t.Contents) {
+		p.Content = t.Contents[x.VariantIdx]
+	} else if len(t.Contents) > 0 {
+		p.Content = t.Contents[0]
+	}
+	p.IntentURL = intentFor(p.Content)
+	p.Timeline, _ = a.st.AuditFor("submission", x.ID)
+	for _, row := range p.Timeline {
+		if row.ActorID > 0 {
+			if _, ok := p.Actors[row.ActorID]; !ok {
+				if au, _ := a.st.GetUserByID(row.ActorID); au != nil {
+					p.Actors[row.ActorID] = au
+				}
+			}
+		}
+	}
+	p.Payments, _ = a.st.PaymentsForSub(x.ID)
+	p.Payee, _ = a.st.GetPayProfile(x.WorkerID)
+	p.Disputes, _ = a.st.DisputesForSub(x.ID)
+	p.Dispute, _ = a.st.OpenDisputeForSub(x.ID)
+	p.DisputeOK = a.disputeOptions(x, t, u)
+	p.CanSubmit = p.IsWorker && (x.Status == SClaimed || (x.Status == SSubmit && x.NextVerifyAt == 0)) && x.VerifyAttempts < a.cfg.VerifyAttempts && x.ClaimExpiresAt > ms()
+	p.TopupE8 = 0
+	if x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < t.RewardE8 {
+		p.TopupE8 = t.RewardE8 - x.UnderpaidE8
+	}
+	disputedOverdue := x.Status == SDisputed && x.PrevStatus == SOverdue
+	payState := x.Status == SPayable || x.Status == SOverdue || disputedOverdue || p.TopupE8 > 0
+	p.CanPay = p.IsOwner && payState && p.Payee.Gateway() && a.gwc != nil
+	p.CanMark = p.IsOwner && (x.Status == SPayable || x.Status == SOverdue || disputedOverdue || (p.TopupE8 > 0 && x.TopupMarkedAt == 0))
+	p.CanConfirm = p.IsWorker && x.Status == SAwait
+	if p.TopupE8 > 0 {
+		p.Amount = fmtE8(p.TopupE8)
+	} else {
+		p.Amount = fmtE8(t.RewardE8)
+	}
+	if p.CanPay {
+		kind := "gateway"
+		if p.TopupE8 > 0 {
+			kind = "topup"
+		}
+		p.ActivePay, _ = a.st.ActivePayment(x.ID, kind)
+		if p.ActivePay != nil {
+			p.QR = qrBase64(p.ActivePay.ReceiveLink)
+		}
+	}
+	return p
+}
+
+func (a *App) handleSub(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	// 页面打开时顺手对一次网关（4 秒节流在 syncPayment 里）
+	if ap, _ := a.st.ActivePayment(x.ID, "gateway"); ap != nil {
+		a.syncPayment(ap)
+		x, _ = a.st.GetSubByID(x.ID)
+	}
+	a.render(w, http.StatusOK, "sub", a.buildSubPage(w, r, x, t, u, ""))
+}
+
+func (a *App) handleSubStatus(w http.ResponseWriter, r *http.Request) {
+	x, t, _, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	out := map[string]any{"status": x.Status, "text": subStatus(x.Status), "error": x.LastError}
+	for _, kind := range []string{"gateway", "topup"} {
+		if ap, _ := a.st.ActivePayment(x.ID, kind); ap != nil {
+			a.syncPayment(ap)
+			if np, _ := a.st.GetPaymentByID(ap.ID); np != nil {
+				out["pay"] = map[string]any{"status": np.Status, "amount": np.PayAmount, "expires_at": np.ExpiresAt}
+			}
+		}
+	}
+	if nx, _ := a.st.GetSubByID(x.ID); nx != nil {
+		out["status"], out["text"] = nx.Status, subStatus(nx.Status)
+		if nx.Status == SPaid {
+			out["paid_amount"] = fmtE8(nx.PaidAmountE8)
+		}
+	}
+	_ = t
+	replyJSON(w, http.StatusOK, out)
+}
+
+// handleSubmit 接单方回填推文链接。
+func (a *App) handleSubmit(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != x.WorkerID {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if a.limited(w, r, "submit", 10, time.Minute) {
+		return
+	}
+	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if !(x.Status == SClaimed || (x.Status == SSubmit && x.NextVerifyAt == 0)) {
+		bad("当前状态不能提交")
+		return
+	}
+	if x.ClaimExpiresAt <= ms() {
+		bad("接单时限已过")
+		return
+	}
+	if x.VerifyAttempts >= a.cfg.VerifyAttempts {
+		bad(fmt.Sprintf("已用完 %d 次提交机会", a.cfg.VerifyAttempts))
+		return
+	}
+	url := strings.TrimSpace(r.FormValue("tweet_url"))
+	id := tweetIDFrom(url)
+	if id == "" {
+		bad("推文链接不对，应形如 https://x.com/你的名字/status/1234567890")
+		return
+	}
+	if n := a.st.count(`SELECT COUNT(*) FROM submissions WHERE tweet_id=? AND id<>?`, id, x.ID); n > 0 {
+		bad("这条推文已经用过了，一条推文只能核销一条记录")
+		return
+	}
+	if ok, err := a.st.SetSubmitted(x.ID, id, "https://x.com/i/web/status/"+id); err != nil || !ok {
+		if err != nil && strings.Contains(err.Error(), "UNIQUE") {
+			bad("这条推文已经用过了")
+			return
+		}
+		bad("当前状态不能提交")
+		return
+	}
+	a.st.Audit(u.ID, "sub.submit", "submission", x.ID, map[string]any{"tweet": id}, a.ip(r))
+	if nx, _ := a.st.GetSubByID(x.ID); nx != nil {
+		a.verifySubmission(nx) // 同步验证，几秒内给结果
+	}
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+// handlePayMark 发布方手动登记已付（手动模式，或网关看不见时的兜底）。
+func (a *App) handlePayMark(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != t.OwnerID {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if a.limited(w, r, "mark", 20, 10*time.Minute) {
+		return
+	}
+	boid := strings.TrimSpace(r.FormValue("binance_order_id"))
+	note := cleanText(r.FormValue("note"), 200, false)
+	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if !reBinanceOrder.MatchString(boid) {
+		bad("请填写币安 App 转账详情里的 18 位订单编号")
+		return
+	}
+	ok2, err := a.st.SetMarkedPaid(x.ID, boid, note)
+	if err != nil {
+		bad(err.Error())
+		return
+	}
+	if !ok2 {
+		bad("当前状态不能标记")
+		return
+	}
+	a.st.Audit(u.ID, "sub.mark_paid", "submission", x.ID, map[string]any{"binance_order_id": boid}, a.ip(r))
+	a.closePendingForSub(x.ID)
+	if d, _ := a.st.OpenDisputeForSub(x.ID); d != nil && d.Type == "A" {
+		a.st.ResolveDispute(d.ID, "marked_paid", "发布方已登记付款，转待接单方确认；未收到可再发起申诉", 0)
+		a.st.Audit(u.ID, "dispute.auto_close", "dispute", d.ID, map[string]any{"reason": "marked_paid"}, a.ip(r))
+	}
+	a.notify(x.WorkerID, "pay", "发布方已标记付款，请核对到账", fmt.Sprintf("任务 %s 的 %s U，币安订单 %s。请在币安 App 核对后点「已收到」；没收到请发起申诉。24 小时未处理会暂时不能接新任务。", t.Code, fmtE8(t.RewardE8), boid), x.Path())
+	a.flash(w, "已登记，等待接单方确认")
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+// handleConfirm 接单方确认收到。
+func (a *App) handleConfirm(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != x.WorkerID {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if x.Status != SAwait {
+		a.flash(w, "当前状态不能确认")
+		http.Redirect(w, r, x.Path(), http.StatusFound)
+		return
+	}
+	amount := t.RewardE8
+	if x.UnderpaidE8 > 0 && x.TopupMarkedAt == 0 {
+		amount = x.UnderpaidE8
+	}
+	ok2, err := a.st.SetPaid(x.ID, "manual", amount)
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	if !ok2 {
+		a.flash(w, "当前状态不能确认")
+		http.Redirect(w, r, x.Path(), http.StatusFound)
+		return
+	}
+	a.afterPaid(x, t, u.ID, "manual")
+	a.flash(w, "已确认收到，记录完成")
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+// handleUnderpaid 少付：接单方选择接受实付或要求补差。
+func (a *App) handleUnderpaid(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != x.WorkerID || x.Status != SAwait || x.UnderpaidE8 <= 0 {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	switch r.FormValue("action") {
+	case "accept":
+		if ok2, _ := a.st.SetPaid(x.ID, "gateway", x.UnderpaidE8); ok2 {
+			a.afterPaid(x, t, u.ID, "gateway")
+			a.flash(w, "已按实付金额完成")
+		}
+	case "topup":
+		a.st.SetTopupRequested(x.ID)
+		a.notify(t.OwnerID, "pay", "接单方要求补足差额", fmt.Sprintf("任务 %s 实付 %s U，少 %s U，请补付。", t.Code, fmtE8(x.UnderpaidE8), fmtE8(t.RewardE8-x.UnderpaidE8)), x.Path())
+		a.st.Audit(u.ID, "sub.topup_requested", "submission", x.ID, nil, a.ip(r))
+		a.flash(w, "已通知发布方补差")
+	}
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+// afterPaid 完成后的收尾：审计、通知、解冻、关掉多余网关订单。
+func (a *App) afterPaid(x *Submission, t *Task, actor int64, method string) {
+	a.st.Audit(actor, "sub.paid", "submission", x.ID, map[string]any{"method": method}, "")
+	a.closePendingForSub(x.ID)
+	if a.st.PublisherFrozen(t.OwnerID) == 0 {
+		a.st.UnfreezeOwnerTasks(t.OwnerID)
+	}
+	a.notify(t.OwnerID, "pay", "一条记录已完成", fmt.Sprintf("任务 %s：接单方已确认收款。", t.Code), x.Path())
+	a.notify(x.WorkerID, "pay", "记录已完成", fmt.Sprintf("任务 %s 的报酬已确认到账。", t.Code), x.Path())
+	if d, _ := a.st.OpenDisputeForSub(x.ID); d != nil && (d.Type == "A" || d.Type == "B") {
+		a.st.ResolveDispute(d.ID, "resolved_by_payment", "款项已确认到账，申诉自动结案", 0)
+		a.st.Audit(0, "dispute.auto_close", "dispute", d.ID, nil, "")
+		if d.Type == "B" && x.MarkedPaidAt > 0 && x.MarkedPaidAt < d.CreatedAt {
+			// 先标记、被申诉后款才到：记一次虚假标记警告
+			if owner, _ := a.st.GetUserByID(t.OwnerID); owner != nil {
+				a.warnPublisher(owner, "标记已付后款项才到账（B 类申诉期间）", d.ID, x.Path(), "")
+			}
+		}
+	}
+}

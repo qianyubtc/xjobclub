@@ -1,0 +1,17 @@
+{{define "title"}}案件 #{{.C.ID}} · 小法庭 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="row between"><h1 style="margin:0">案件 #{{.C.ID}}</h1><span class="st {{stClass .C.Status}}">{{if eq .C.Status "voting"}}投票中 · 截止 {{ftime .C.DeadlineAt}}{{else if eq .C.Status "closed"}}已结案{{else}}已转管理员{{end}}</span></div>
+  {{if .CanVote}}<div class="notice ok">你是本案陪审员。请看完双方陈述与系统事实后投票；票数在结案前对所有人保密。</div>{{else if .MyVote}}<div class="notice">你已投票：{{if eq .MyVote.Vote "for"}}支持发起方{{else if eq .MyVote.Vote "against"}}支持被诉方{{else}}弃权{{end}}。</div>{{end}}
+</section>
+{{template "disputebody" .DP}}
+{{if .CanVote}}<section class="card"><h2 style="margin-top:0">投票</h2>
+<form method="post" action="/court/{{.C.ID}}/vote" data-confirm="投票后不可更改，确定？">
+  <label><input type="radio" name="vote" value="for" required>支持发起方（{{with .DP.Opener}}@{{.Handle}}{{end}}）：{{if eq .D.Type "B"}}发布方并未付款{{else if eq .D.Type "D"}}推文确实不合格{{else}}申诉成立{{end}}</label>
+  <label><input type="radio" name="vote" value="against">支持被诉方（{{with .DP.Against}}@{{.Handle}}{{end}}）：{{if eq .D.Type "B"}}款项已到账或责任不在发布方{{else if eq .D.Type "D"}}推文合格{{else}}申诉不成立{{end}}</label>
+  <label><input type="radio" name="vote" value="abstain">证据不足，弃权</label>
+  <label>理由（≤100 字，结案后匿名公开）</label><input name="reason" maxlength="100">
+  <button class="btn" style="margin-top:10px">投票</button>
+</form></section>{{end}}
+{{if ne .C.Status "voting"}}<section class="card"><h2 style="margin-top:0">票型</h2><p>支持发起方 <b>{{.C.VotesFor}}</b> · 支持被诉方 <b>{{.C.VotesAgainst}}</b> · 弃权 {{.C.Abstain}}{{if .C.Verdict}} · 裁决：{{if eq .C.Verdict "for"}}支持发起方{{else}}支持被诉方{{end}}{{end}}</p>{{if .Reasons}}<ul class="small">{{range .Reasons}}<li>{{.}}</li>{{end}}</ul>{{end}}</section>{{end}}
+{{end}}

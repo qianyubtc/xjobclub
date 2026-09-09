@@ -1,0 +1,6 @@
+{{define "title"}}通知 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="narrow"><section class="card"><h1>通知</h1>
+{{if .Notes}}{{range .Notes}}<div class="msg"><div class="who">{{ftime .CreatedAt}}{{if not .ReadAt}} · <b>新</b>{{end}}</div><div><b>{{.Title}}</b></div>{{if .Body}}<div class="small">{{.Body}}</div>{{end}}{{if .Link}}<a class="small" href="{{.Link}}">查看 →</a>{{end}}</div>{{end}}{{else}}<p class="muted">还没有通知。</p>{{end}}
+</section></div>
+{{end}}

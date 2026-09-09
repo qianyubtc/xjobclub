@@ -1,0 +1,19 @@
+[Unit]
+Description=xjobclub (推了么)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=xjobclub
+Group=xjobclub
+WorkingDirectory=/opt/xjobclub
+ExecStart=/opt/xjobclub/xjobclub -config /opt/xjobclub/config.env
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/xjobclub
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

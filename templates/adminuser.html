@@ -1,0 +1,23 @@
+{{define "title"}}用户管理 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card"><form method="get" action="/admin/users" class="row"><input name="q" value="{{.Q}}" placeholder="X 用户名 / X ID" style="max-width:280px"><button class="btn sec sm">搜索</button> <a class="small" href="/admin">← 后台</a></form>
+{{if .Found}}{{if gt (len .Found) 1}}<div class="tbl"><table><tr><th>用户</th><th>X ID</th><th>状态</th><th>注册</th></tr>{{range .Found}}<tr><td><a href="/admin/users?id={{.ID}}">@{{.Handle}}</a></td><td>{{.XID}}</td><td>{{.Status}}</td><td class="small muted">{{fdate .CreatedAt}}</td></tr>{{end}}</table></div>{{end}}{{end}}</section>
+{{if .U}}
+<section class="card">
+  <div class="row between">{{template "userline" .U}}<span class="st {{if eq .U.Status "active"}}good{{else}}bad{{end}}">{{.U.Status}}</span></div>
+  <div class="kv"><span class="k">X ID</span><span class="v">{{.U.XID}} · <a href="{{xlink .U.XID .U.Handle}}" target="_blank" rel="noopener">X 主页</a></span><span class="k">注册</span><span class="v">{{ftime .U.CreatedAt}} · 最近登录 {{ftime .U.LastLoginAt}}</span><span class="k">认证</span><span class="v">{{if .U.CertPaidAt}}{{ftime .U.CertPaidAt}} · payer {{.U.PayerID}}{{else}}未认证{{end}}</span><span class="k">收款</span><span class="v">{{if .Pay}}UID {{.Pay.BinanceUID}} · {{.Pay.Mode}} {{.Pay.APIKeyMasked}} {{.Pay.BPGLastErr}}{{else}}未设置{{end}}</span><span class="k">统计</span><span class="v">付款 {{.Stats.Paid}}（网关 {{.Stats.PaidGateway}}）逾期 {{.Stats.Overdue}} 违约 {{.Stats.Defaulted}} · 接单完成 {{.WStats.Done}} 留存不达标 {{.WStats.Void30d}} · 敞口 {{amt .Stats.ExposureE8}} U{{if .U.SuspendedUntil}} · 暂停接单至 {{ftime .U.SuspendedUntil}}{{end}}</span></div>
+  <div class="btns">
+    <form method="post" action="/admin/user/{{.U.ID}}/blacklist" data-confirm="上黑名单？" class="row"><select name="role" style="width:auto"><option value="publisher">发布方</option><option value="worker">接单方</option></select><input name="reason" placeholder="原因" style="width:200px"><button class="btn danger sm">上黑名单</button></form>
+    <form method="post" action="/admin/user/{{.U.ID}}/ban" data-confirm="封禁（不能登录）？"><button class="btn danger sm">封禁</button></form>
+    <form method="post" action="/admin/user/{{.U.ID}}/activate" data-confirm="恢复正常？"><button class="btn sec sm">恢复 / 解除</button></form>
+    {{if .U.SuspendedUntil}}<form method="post" action="/admin/user/{{.U.ID}}/unsuspend"><button class="btn sec sm">解除暂停接单</button></form>{{end}}
+    {{if not .U.CertPaidAt}}<form method="post" action="/admin/user/{{.U.ID}}/cert"><button class="btn ghost sm">手动标记已认证</button></form>{{end}}
+    {{if and .Pay .Pay.Gateway}}<form method="post" action="/admin/user/{{.U.ID}}/downgrade" data-confirm="降级为手动？"><button class="btn ghost sm">降级为手动到账</button></form>{{end}}
+  </div>
+</section>
+{{if .BL}}<section class="card"><h2 style="margin-top:0">黑名单记录</h2>{{range .BL}}<div class="msg">{{.Reason}} · {{fdate .CreatedAt}}{{if .AmountOwedE8}} · 欠 {{amt .AmountOwedE8}}{{end}} · {{if .LiftedAt}}已解除{{else}}<form method="post" action="/admin/blacklist/{{.ID}}/lift" style="display:inline"><input type="hidden" name="note" value="管理员解除"><button class="btn ghost sm">解除</button></form>{{end}}</div>{{end}}</section>{{end}}
+{{if .Tasks}}<section class="card"><h2 style="margin-top:0">发布的任务</h2>{{range .Tasks}}<div><a href="{{.Path}}"><code>{{.Code}}</code> {{.Title}}</a> · {{amt .RewardE8}} U · {{.Status}} · {{.DoneCount}}/{{.SlotsTotal}}</div>{{end}}</section>{{end}}
+{{if .Subs}}<section class="card"><h2 style="margin-top:0">接的任务</h2><div class="tbl"><table><tr><th>记录</th><th>任务</th><th>状态</th><th>时间</th></tr>{{range .Subs}}<tr><td><a href="{{.Path}}"><code>{{.Code}}</code></a></td><td>{{with index $.TaskMap .TaskID}}{{.Title}}{{end}}</td><td><span class="st {{stClass .Status}}">{{subStatus .Status}}</span></td><td class="small muted">{{ago .UpdatedAt}}</td></tr>{{end}}</table></div></section>{{end}}
+{{if .Audit}}<section class="card"><h2 style="margin-top:0">审计</h2><ul class="tl">{{range .Audit}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}} <span class="muted small">{{.Meta}} {{.IP}}</span></li>{{end}}</ul></section>{{end}}
+{{end}}
+{{end}}

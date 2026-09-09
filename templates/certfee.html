@@ -1,0 +1,18 @@
+{{define "title"}}认证付款 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="narrow"><section class="card">
+  <h1>发布方认证付款</h1>
+  <p class="small">首次发布任务前，向平台付一次 <b>{{.Amount}} U</b>。这不是保证金，也不退：它的作用是让网关记下你的<b>币安付款账户 ID</b>，作为你的身份锚——赖账上榜后换个 X 号也认得出来。同时挡住批量小号。</p>
+  {{if .Me.CertPaidAt}}<div class="notice ok">你已完成认证（{{fdate .Me.CertPaidAt}}）。<a href="/new">去发布任务</a></div>
+  {{else if .P}}
+    <div class="notice ok">按<b>唯一金额一分不差</b>转账，几秒内自动确认。会话 {{ftime .P.ExpiresAt}} 过期，过期再点一次生成新金额。</div>
+    <div class="kv"><span class="k">金额</span><span class="v"><b class="num" style="font-size:20px">{{.P.PayAmount}}</b> USDT <button type="button" class="copy" data-copy="{{.P.PayAmount}}">复制</button></span><span class="k">收款 UID</span><span class="v"><code>{{.P.ReceiveUID}}</code><button type="button" class="copy" data-copy="{{.P.ReceiveUID}}">复制</button></span>{{if .P.NoteCode}}<span class="k">备注（可选）</span><span class="v"><code>{{.P.NoteCode}}</code></span>{{end}}</div>
+    {{if .QR}}<img class="qr" src="data:image/png;base64,{{.QR}}" alt="收款二维码">{{end}}
+    <p class="hint"><span class="spin"></span>等待到账，本页自动更新。币安 App → 支付 → 转账 → UID → 金额 {{.P.PayAmount}}。</p>
+    <form method="post" action="/me/cert"><button class="btn ghost sm">会话过期了？重新生成</button></form>
+  {{else}}
+    <form method="post" action="/me/cert"><button class="btn">生成付款金额（{{.Amount}} U）</button></form>
+  {{end}}
+</section></div>
+{{end}}
+{{define "scripts"}}{{if and .P (not .Me.CertPaidAt)}}<script>setInterval(function(){fetch('/me/cert/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j.paid)location.href='/new'}).catch(function(){})},4000);</script>{{end}}{{end}}

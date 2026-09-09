@@ -1,0 +1,16 @@
+{{define "title"}}登录 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="narrow"><section class="card">
+  <h1>登录</h1>
+  {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{.Next}}">
+    <label for="login">X 用户名</label>
+    <input id="login" name="login" value="{{.Login}}" placeholder="不带 @" autocapitalize="off" autocomplete="username" required>
+    <label for="pw">密码</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required>
+    <button class="btn" type="submit" style="margin-top:14px">登录</button>
+  </form>
+  <div class="hint" style="margin-top:12px">没有账号？<a href="/register">用 X 发帖注册</a> · 忘了密码？<a href="/reset">用 X 找回</a></div>
+</section></div>
+{{end}}

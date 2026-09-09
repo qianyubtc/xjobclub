@@ -1,0 +1,49 @@
+{{define "scripts"}}{{end}}
+{{define "avatar"}}{{if .AvatarURL}}<img class="av" src="{{.AvatarURL}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{else}}<span class="av" style="background:hsl({{hue .Handle}},45%,45%)">{{initial .Handle}}</span>{{end}}{{end}}
+{{define "userline"}}<a class="userline" href="{{.Path}}">{{template "avatar" .}}<span><b>{{.Name}}</b> <span class="muted small">@{{.Handle}}</span></span></a>{{end}}
+{{define "usermini"}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}
+{{define "pager"}}{{if gt .Pages 1}}<div class="pager">{{if gt .Page 1}}<a href="?page={{sub (i64 .Page) 1}}">上一页</a>{{end}}<span>{{.Page}} / {{.Pages}}</span>{{if lt .Page .Pages}}<a href="?page={{add (i64 .Page) 1}}">下一页</a>{{end}}</div>{{end}}{{end}}
+{{define "subrow"}}<tr>
+  <td><a href="{{.X.Path}}"><code>{{.X.Code}}</code></a></td>
+  <td>{{if .T}}<a href="{{.T.Path}}">{{.T.Title}}</a>{{end}}</td>
+  <td>{{if .Other}}<a href="{{.Other.Path}}">@{{.Other.Handle}}</a>{{end}}</td>
+  <td class="num">{{if .T}}{{amt .T.RewardE8}} U{{end}}</td>
+  <td><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></td>
+  <td class="small muted">{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</td>
+</tr>{{end}}
+{{define "taskcard"}}<a class="taskcard" href="{{.T.Path}}">
+  <div class="row between"><div class="tt">{{.T.Title}}</div><div class="reward">{{amt .T.RewardE8}} <small style="font-size:12px;font-weight:500">U / 条</small></div></div>
+  <div class="meta">
+    <span>剩余名额 <b class="num">{{.T.Left}}</b>/{{.T.SlotsTotal}}</span>
+    <span>留存 {{dur .T.RetentionH}}</span>
+    <span>付款时限 {{dur .T.PayWindowH}}</span>
+    <span>截止 {{fdate .T.DeadlineAt}}</span>
+    {{if .T.MinAccountDays}}<span>要求 X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}
+    {{if .Owner}}<span>发布方 @{{.Owner.Handle}} · 网关核销 {{.Stats.PaidGateway}} 单{{if .Stats.Overdue}} · 逾期 {{.Stats.Overdue}}{{end}}{{if .Stats.Frozen}} · <b style="color:var(--bad)">冻结中</b>{{end}}</span>{{end}}
+  </div>
+</a>{{end}}
+{{define "disputebody"}}
+<section class="card">
+  <div class="row between"><h1 style="margin:0">申诉 <code>{{.D.Code}}</code> · {{dtype .D.Type}}</h1><span class="st {{stClass .D.Status}}" style="font-size:14px">{{dstatus .D.Status}}</span></div>
+  <div class="kv" style="margin-top:10px">
+    <span class="k">发起方</span><span class="v">{{if .Opener}}{{template "usermini" .Opener}}{{end}}</span>
+    {{if .Against}}<span class="k">被诉方</span><span class="v">{{template "usermini" .Against}}</span>{{end}}
+    {{if .X}}<span class="k">记录</span><span class="v">{{if or .IsParty .IsAdmin}}<a href="{{.X.Path}}"><code>{{.X.Code}}</code></a>{{else}}<code>{{.X.Code}}</code>{{end}} · <span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></span>{{end}}
+    {{if .T}}<span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> · <span class="amt">{{amt .T.RewardE8}} U</span> · 留存 {{dur .T.RetentionH}} · 付款时限 {{dur .T.PayWindowH}}</span>{{end}}
+    {{if .X}}{{if .X.TweetID}}<span class="k">推文</span><span class="v"><a href="https://x.com/i/web/status/{{.X.TweetID}}" target="_blank" rel="noopener">x.com/i/web/status/{{.X.TweetID}}</a></span>{{end}}
+    {{if .X.VerifiedAt}}<span class="k">验证通过</span><span class="v">{{ftime .X.VerifiedAt}}{{if .X.RecheckFlag}} · {{.X.RecheckFlag}}{{end}}</span>{{end}}
+    {{if .X.PayableAt}}<span class="k">进入待付款</span><span class="v">{{ftime .X.PayableAt}} · 截止 {{ftime .X.PayDeadlineAt}}</span>{{end}}
+    {{if .X.OverdueAt}}<span class="k">逾期</span><span class="v">{{ftime .X.OverdueAt}}</span>{{end}}
+    {{if .X.MarkedPaidAt}}<span class="k">发布方标记已付</span><span class="v">{{ftime .X.MarkedPaidAt}}{{if .X.MarkedOrderID}} · 币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}</span>{{end}}{{end}}
+    {{if .BL}}<span class="k">处罚</span><span class="v">{{.BL.Reason}} · {{fdate .BL.CreatedAt}}{{if .BL.AmountOwedE8}} · 欠款 {{amt .BL.AmountOwedE8}} U{{end}}</span>{{end}}
+    <span class="k">发起时间</span><span class="v">{{ftime .D.CreatedAt}}{{if .D.EvidenceUntil}} · 举证截止 {{ftime .D.EvidenceUntil}}{{end}}</span>
+    {{if .D.Resolution}}<span class="k">结论</span><span class="v"><b>{{.D.ResolutionNote}}</b>{{if .D.ResolvedAt}} · {{ftime .D.ResolvedAt}}{{end}}{{if eq .D.ResolvedBy 0}} · 小法庭{{else}} · 管理员{{end}}</span>{{end}}
+  </div>
+  {{if .Payments}}<div class="small muted">网关付款单：{{range .Payments}}<code>{{.MerchantOrderID}}</code> {{.Status}} {{if .ActualE8}}{{amt .ActualE8}} U{{end}}；{{end}}</div>{{end}}
+</section>
+<section class="card" id="msgs">
+  <h2 style="margin-top:0">陈述与证据</h2>
+  {{range .Msgs}}<div class="msg"><div class="who">{{if .AuthorID}}{{with index $.Authors .AuthorID}}@{{.Handle}}{{if eq .ID $.D.OpenerID}}（发起方）{{else if eq .ID $.D.AgainstID}}（被诉方）{{end}}{{end}}{{else}}管理员{{end}} · {{ftime .CreatedAt}}</div><div class="body">{{.Text}}</div>{{range .Images}}<a class="ev" href="/evidence/{{.}}" target="_blank"><img src="/evidence/{{.}}" alt="证据" loading="lazy"></a>{{end}}</div>{{else}}<p class="muted">暂无。</p>{{end}}
+</section>
+{{if .Facts}}<section class="card"><h2 style="margin-top:0">系统事实（记录时间线）</h2><ul class="tl">{{range .Facts}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}}{{if .Meta}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}</ul></section>{{end}}
+{{end}}

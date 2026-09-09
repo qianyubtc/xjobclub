@@ -1,0 +1,34 @@
+{{define "title"}}收款设置 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="narrow">
+<section class="card">
+  <h1>收款设置</h1>
+  <p class="muted small">别人付你的 U 直接转到你的币安账户，平台不经手。所有付款都以你填的 UID 为收款方，<b>填错了钱会转给别人，平台无法追回</b>。</p>
+  {{if .P}}<div class="notice ok">当前：UID <code>{{.P.BinanceUID}}</code>{{if .P.ReceiveEmail}} · {{.P.ReceiveEmail}}{{end}} · {{if .P.Gateway}}<b>自动到账</b>（Key {{.P.APIKeyMasked}}{{if .P.BPGLastErr}}，<span style="color:var(--bad)">最近异常：{{.P.BPGLastErr}}</span>{{end}}）{{else}}手动确认{{end}}</div>{{else}}<div class="notice warn">还没设置。先填 UID，这是接单和发布的前提。</div>{{end}}
+  {{if .Cert}}<div class="notice">想发布任务？还需完成一次认证付款。<a href="/me/cert">去认证</a></div>{{end}}
+  <h2>方式一：币安 UID（必填）</h2>
+  <form method="post" action="/me/pay/uid">
+    <label>币安 UID（币安 App 点头像即可看到，纯数字）</label><input name="uid" inputmode="numeric" value="{{if .P}}{{.P.BinanceUID}}{{end}}" required>
+    <label>再输一遍 UID</label><input name="uid2" inputmode="numeric" value="{{if .P}}{{.P.BinanceUID}}{{end}}" required>
+    <label>收款邮箱（可选，方便对方核对）</label><input name="email" value="{{if .P}}{{.P.ReceiveEmail}}{{end}}" autocapitalize="off">
+    <button class="btn" style="margin-top:12px">保存</button>
+    <div class="hint">手动确认模式：发布方付款后登记订单号，你在币安 App 核对后点「已收到」。</div>
+  </form>
+  {{if .Gateway}}
+  <h2>方式二：自动到账（进阶，可选）</h2>
+  <p class="small muted">绑定一把<b>只读</b>币安 API Key，网关轮询你的 Pay 流水自动核销，不用天天点确认，也能拿到"网关核销"信用。Key 与 Secret 直接交给网关加密保存，不进本站数据库。</p>
+  {{if and .P .P.Gateway}}<form method="post" action="/me/pay/unbind" data-confirm="解绑后在途的自动订单会关闭并通知付款方改手动。确定？"><button class="btn ghost">解绑 Key，改回手动确认</button></form>
+  {{else}}<details class="fold"><summary>绑定只读 API Key</summary>
+    <ol class="small"><li>币安 App / 网页 → 账户 → API 管理 → 创建 API</li><li>权限<b>只勾「允许读取」</b>，其它全部不勾</li><li>IP 白名单填网关服务器出口 IP（在规则页公布）</li></ol>
+    <form method="post" action="/me/pay/bind" autocomplete="off">
+      <label>API Key</label><input name="api_key" autocomplete="off" required>
+      <label>API Secret</label><input name="api_secret" type="password" autocomplete="new-password" required>
+      <label>币安 UID</label><input name="uid" inputmode="numeric" value="{{if .P}}{{.P.BinanceUID}}{{end}}" required>
+      <button class="btn sec" style="margin-top:12px">验证并绑定</button>
+    </form>
+    <div class="hint">网关会先用这把 Key 试拉一次流水，失败会返回币安的原因（Key 无效 / IP 未白名单 / 地区限制）。个人账户跑收款属币安条款灰色地带，风险自担。</div>
+  </details>{{end}}
+  {{end}}
+</section>
+</div>
+{{end}}

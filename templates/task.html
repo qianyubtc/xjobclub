@@ -1,0 +1,54 @@
+{{define "title"}}{{.T.Title}} · {{amt .T.RewardE8}} U · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="row between"><h1 style="margin:0">{{.T.Title}}</h1><div class="big amt">{{amt .T.RewardE8}} <small style="font-size:13px">U / 条</small></div></div>
+  <div class="row small muted" style="margin:6px 0 10px"><span><code>{{.T.Code}}</code></span><span class="st {{if eq .T.Status "open"}}good{{else if eq .T.Status "paused"}}warn{{else}}muted{{end}}">{{if eq .T.Status "open"}}接单中{{else if eq .T.Status "paused"}}已暂停{{else}}已关闭{{end}}</span>{{if .Done}}<span class="st good">名额已全部完成</span>{{else if .Full}}<span class="st wait">名额已满</span>{{end}}<span>发布于 {{ftime .T.PublishedAt}}</span></div>
+  <div class="kv">
+    <span class="k">剩余名额</span><span class="v num">{{.T.Left}} / {{.T.SlotsTotal}}（已完成 {{.T.DoneCount}}）</span>
+    <span class="k">接单时限</span><span class="v">接单后 {{durMin .T.ClaimTTLMin}} 内回填推文链接</span>
+    <span class="k">留存要求</span><span class="v">{{if .T.RetentionH}}推文须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}无留存要求（验证通过即待付款）{{end}}</span>
+    <span class="k">付款时限</span><span class="v">待付款后 {{dur .T.PayWindowH}} 内，发布方逾期会被冻结并可被举报</span>
+    <span class="k">匹配方式</span><span class="v">{{if eq .T.MatchMode "contains"}}包含即可：推文里完整包含文案，可以加自己的话{{else}}全文一致：推文正文须与文案一致（空白与链接写法不计）{{end}}</span>
+    <span class="k">任务截止</span><span class="v">{{ftime .T.DeadlineAt}}</span>
+    {{if .T.MinAccountDays}}<span class="k">接单要求</span><span class="v">X 账号注册满 {{.T.MinAccountDays}} 天</span>{{end}}
+  </div>
+  <h2>推文文案{{if gt (len .T.Contents) 1}} <span class="muted small">共 {{len .T.Contents}} 个变体，接单时分配一条，发任一条都算</span>{{end}}</h2>
+  {{range $i, $c := .T.Contents}}<pre class="tweet" id="c{{$i}}">{{$c}}</pre><div class="small muted">变体 {{inc $i}} <button type="button" class="copy" data-copy-from="c{{$i}}">复制</button></div>{{end}}
+  <div class="hint" style="margin-top:10px">⚠ 用自己的账号发布商业内容，请阅读文案再接。同一文案被大量账号发布可能触发 X 的重复内容与平台操纵规则，风险自负。</div>
+</section>
+
+<section class="card">
+  <h2 style="margin-top:0">发布方</h2>
+  {{if .Owner}}<div class="row between">{{template "userline" .Owner}}<span class="tier">{{.OwnerTier.Name}}</span></div>
+  <div class="stats" style="margin-top:10px"><div><b class="num">{{.OwnerStats.PaidGateway}}</b><span>网关核销付款</span></div><div><b class="num">{{.OwnerStats.Paid}}</b><span>已付款总数</span></div><div><b class="num" {{if .OwnerStats.Overdue}}style="color:var(--bad)"{{end}}>{{.OwnerStats.Overdue}}</b><span>逾期次数</span></div><div><b class="num">{{avgDur .OwnerStats.AvgPayMs}}</b><span>平均付款用时</span></div><div><b class="num">{{fdate .Owner.CreatedAt}}</b><span>注册</span></div></div>
+  {{if .OwnerStats.Frozen}}<div class="notice bad">该发布方有逾期未付记录，当前冻结中。</div>{{end}}
+  {{if .Owner.CertPaidAt}}<div class="small muted">✅ 已完成认证付款（付款账户已锚定）</div>{{end}}{{end}}
+</section>
+
+{{if .IsOwner}}
+<section class="card">
+  <h2 style="margin-top:0">管理任务</h2>
+  <div class="btns">
+    {{if eq .T.Status "open"}}<form method="post" action="/t/{{.T.Code}}/pause"><button class="btn sec sm">暂停接单</button></form>{{end}}
+    {{if eq .T.Status "paused"}}<form method="post" action="/t/{{.T.Code}}/resume"><button class="btn sec sm">恢复接单</button></form>{{end}}
+    {{if .CanEdit}}<a class="btn sec sm" href="/new?edit={{.T.Code}}">编辑文案</a>{{end}}
+    {{if ne .T.Status "closed"}}<form method="post" action="/t/{{.T.Code}}/extend" class="row"><input name="days" value="7" style="width:70px" inputmode="numeric"> <button class="btn sec sm">延长截止（天）</button></form>
+    <form method="post" action="/t/{{.T.Code}}/cancel" data-confirm="取消后未被领取的名额不再开放，已领取的照常进行。确定？"><button class="btn danger sm">取消剩余名额</button></form>{{end}}
+    {{if .IsAdmin}}<form method="post" action="/admin/task/{{.T.Code}}/takedown" data-confirm="下架：已验证记录免留存进待付款，未提交的作废。确定？"><button class="btn danger sm">管理员下架</button></form>{{end}}
+  </div>
+  {{if .T.PausedByFreeze}}<div class="notice warn">因你有逾期未付记录，任务被自动暂停；付清后自动恢复。</div>{{end}}
+  <h3>接单记录（{{len .Subs}}）</h3>
+  {{if .Subs}}<div class="tbl"><table><tr><th>编号</th><th>接单方</th><th>状态</th><th>时间</th></tr>
+  {{range .Subs}}<tr><td><a href="{{.Path}}"><code>{{.Code}}</code></a></td><td>{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</td><td><span class="st {{stClass .Status}}">{{subStatus .Status}}</span>{{if .SelfDeal}} <span class="st bad" title="同 IP 段或同付款账户">疑似自导自演</span>{{end}}</td><td class="small muted">{{if eq .Status "payable"}}付款剩 {{left .PayDeadlineAt}}{{else if eq .Status "overdue"}}逾期 {{ago .OverdueAt}}{{else}}{{ago .UpdatedAt}}{{end}}</td></tr>{{end}}
+  </table></div>{{else}}<p class="muted small">还没有人接单。</p>{{end}}
+</section>
+{{else}}
+<section class="card">
+  {{if .Mine}}<div class="notice">你在这个任务上有一条记录：<a href="{{.Mine.Path}}"><code>{{.Mine.Code}}</code></a> <span class="st {{stClass .Mine.Status}}">{{subStatus .Mine.Status}}</span></div>{{end}}
+  {{if and .Me (not .Block)}}<form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单（锁定名额 {{durMin .T.ClaimTTLMin}}）</button></form>
+  <div class="hint">接单后按分配到的文案发帖，回填链接自动验证。发完再删会作废，留存期后复检。</div>
+  {{else if .Me}}<div class="notice warn">{{.Block}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div>{{end}}
+  {{if .Me}}<details class="fold" style="margin-top:14px"><summary>举报这个任务</summary><form method="post" action="/report/task/{{.T.Code}}"><label>理由（诈骗、违法、侮辱等）</label><textarea name="text" required minlength="5" maxlength="1000"></textarea><button class="btn sec sm" style="margin-top:8px">提交举报</button></form></details>{{end}}
+</section>
+{{end}}
+{{end}}

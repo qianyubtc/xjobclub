@@ -1,0 +1,22 @@
+{{define "title"}}申诉 {{.D.Code}} · {{.SiteTitle}}{{end}}
+{{define "content"}}
+{{template "disputebody" .}}
+{{if .Case}}<section class="card"><h2 style="margin-top:0">小法庭</h2><p>案件 <a href="/court/{{.Case.ID}}">#{{.Case.ID}}</a> · {{if eq .Case.Status "voting"}}投票中，截止 {{ftime .Case.DeadlineAt}}（票数结案后公开）{{else}}{{.Case.Status}} · 支持发起方 {{.Case.VotesFor}} / 支持被诉方 {{.Case.VotesAgainst}} / 弃权 {{.Case.Abstain}}{{end}}</p>
+{{if .Votes}}<ul class="small">{{range .Votes}}{{if .Reason}}<li>{{if eq .Vote "for"}}支持发起方{{else if eq .Vote "against"}}支持被诉方{{else}}弃权{{end}}：{{.Reason}}</li>{{end}}{{end}}</ul>{{end}}</section>{{end}}
+{{if .CanAppeal}}<section class="card"><h2 style="margin-top:0">上诉</h2><p class="small">小法庭裁决进入上诉期（至 {{ftime .D.AppealUntil}}），任一方可申请管理员复核一次，逾期自动生效。</p><form method="post" action="/d/{{.D.Code}}/appeal"><textarea name="text" required minlength="10" placeholder="上诉理由"></textarea><button class="btn sec" style="margin-top:8px">申请管理员复核</button></form></section>{{end}}
+{{if .CanPost}}<section class="card"><h2 style="margin-top:0">补充说明 / 上传证据</h2>
+<form method="post" action="/d/{{.D.Code}}/message" enctype="multipart/form-data">
+  <textarea name="text" maxlength="2000" placeholder="{{if eq .D.Type "B"}}发布方：请附币安转账详情截图（含订单编号、收款方、时间）；接单方：请附币安 Pay 收款记录截图（该时间段）{{else}}说明情况{{end}}"></textarea>
+  <label>截图（jpg/png，每张 ≤2MB，最多 3 张，会去除位置等元数据）</label><input type="file" name="images" accept="image/jpeg,image/png" multiple>
+  <button class="btn" style="margin-top:10px">提交</button>
+</form></section>{{end}}
+{{if and .IsAdmin (ne .D.Status "resolved")}}<section class="card"><h2 style="margin-top:0">管理员裁决</h2>
+<form method="post" action="/admin/dispute/{{.D.Code}}/resolve" data-confirm="执行裁决？不可撤销。">
+  <label>结论</label><select name="resolution" id="resSel">{{range .Resolution}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select>
+  <label id="extraLabel">补充参数（少付：实付金额；C 类成立：推文链接）</label><input name="extra" id="extra" placeholder="按需填写">
+  <label>裁决说明（双方可见）</label><textarea name="note" required></textarea>
+  <button class="btn danger" style="margin-top:10px">执行裁决</button>
+</form>
+<div class="btns">{{if eq .D.Status "jury"}}<form method="post" action="/admin/dispute/{{.D.Code}}/takeover"><button class="btn ghost sm">接管（终止小法庭投票）</button></form>{{end}}{{if and (ne .D.Status "jury") (eq .D.JuryCaseID 0) .X}}<form method="post" action="/admin/dispute/{{.D.Code}}/tojury"><button class="btn ghost sm">交小法庭</button></form>{{end}}</div>
+</section>{{end}}
+{{end}}

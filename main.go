@@ -1,0 +1,41 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	cfgPath := flag.String("config", "config.env", "配置文件路径")
+	flag.Parse()
+	cfg, err := loadConfig(*cfgPath)
+	if err != nil {
+		log.Fatalf("配置错误: %v", err)
+	}
+	app, err := newApp(cfg)
+	if err != nil {
+		log.Fatalf("启动失败: %v", err)
+	}
+	app.startJobs()
+	srv := &http.Server{Addr: cfg.Listen, Handler: app, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 120 * time.Second}
+	go func() {
+		log.Printf("[info] %s 监听 %s（%s）", cfg.SiteTitle, cfg.Listen, cfg.BaseURL)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("监听失败: %v", err)
+		}
+	}()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+	app.Close()
+	log.Println("[info] 已退出")
+}

@@ -1,0 +1,10 @@
+{{define "title"}}黑名单榜 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <h1>黑名单榜</h1>
+  <p class="small muted">经核实的违规者公示于此：发布方赖账 / 虚假标记、接单方收到款却否认。每条都有申诉编号可查，处罚可申诉一次。X 用户名为上榜时的名字，可能已更改，链接按 X 数字 ID 跳转。</p>
+  {{if .Rows}}<div class="tbl"><table><tr><th>X 账号</th><th>身份</th><th>原因</th><th>涉及金额</th><th>时间</th><th>申诉</th><th>状态</th></tr>
+  {{range .Rows}}<tr><td><a href="{{xlink .XID .Handle}}" target="_blank" rel="noopener">@{{.Handle}}</a>{{with index $.Users .UserID}} <a class="small muted" href="{{.Path}}">主页</a>{{end}}<div class="tiny muted">X ID {{.XID}}</div></td><td>{{if eq .Role "worker"}}接单方{{else}}发布方{{end}}</td><td>{{.Reason}}</td><td class="num">{{if .AmountOwedE8}}{{amt .AmountOwedE8}} U{{if .RepaidAt}} <span class="st good">已补付</span>{{end}}{{else}}—{{end}}</td><td class="small muted">{{fdate .CreatedAt}}</td><td>{{if .DisputeCode}}<code>{{.DisputeCode}}</code>{{end}}</td><td>{{if .LiftedAt}}<span class="st muted">已解除 {{fdate .LiftedAt}}</span>{{else}}<span class="st bad">在榜</span>{{end}}</td></tr>{{end}}
+  </table></div>{{template "pager" .}}{{else}}<p class="muted">目前没有人上榜。</p>{{end}}
+</section>
+{{end}}

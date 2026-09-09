@@ -1,0 +1,18 @@
+{{define "title"}}{{.SiteTitle}} · X 发帖任务大厅{{end}}
+{{define "content"}}
+<div class="hero">
+  <h1>发一条推，赚一笔 U。</h1>
+  <p>发布方写好推文并出价，接单方用自己的 X 账号发出，平台自动核验推文、盯着留存与付款。钱由发布方<b>直接</b>转给接单方，平台不经手。赖账者公示在黑名单榜。</p>
+  <div class="stats"><div><b class="num">{{.Counts.Open}}</b><span>在线任务</span></div><div><b class="num">{{.Counts.Paid}}</b><span>已完成付款</span></div><div><b class="num">{{amt .PaidSum}}</b><span>累计支付 U</span></div><div><b class="num">{{.Counts.Users}}</b><span>注册用户</span></div></div>
+  {{if not .Me}}<div class="btns" style="margin-top:0"><a class="btn" href="/register">用 X 账号注册</a><a class="btn sec" href="/rules">先看规则</a></div>{{end}}
+</div>
+<form class="filters" method="get" action="/">
+  <div><label>单价 ≥</label><input name="min" value="{{.MinU}}" inputmode="decimal" placeholder="U"></div>
+  <div><label>留存 ≤</label><select name="ret"><option value="">不限</option><option value="0" {{if eq .Retent "0"}}selected{{end}}>无留存</option><option value="24" {{if eq .Retent "24"}}selected{{end}}>1 天</option><option value="72" {{if eq .Retent "72"}}selected{{end}}>3 天</option></select></div>
+  <div><label>排序</label><select name="sort"><option value="new" {{if ne .Sort "reward"}}selected{{end}}>最新</option><option value="reward" {{if eq .Sort "reward"}}selected{{end}}>单价高</option></select></div>
+  <button class="btn sec sm" type="submit">筛选</button>
+</form>
+{{if .Tasks}}{{range .Tasks}}{{template "taskcard" (dict "T" . "Owner" (index $.Owners .OwnerID) "Stats" (index $.Stats .OwnerID))}}{{end}}
+<div class="pager">{{if gt .Page 1}}<a href="?page={{sub (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">上一页</a>{{end}}{{if gt .Pages 1}}<span>{{.Page}} / {{.Pages}}</span>{{end}}{{if lt .Page .Pages}}<a href="?page={{add (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">下一页</a>{{end}}</div>
+{{else}}<section class="card"><p class="muted">暂时没有可接的任务。{{if .Me}}<a href="/new">发布一个？</a>{{end}}</p></section>{{end}}
+{{end}}

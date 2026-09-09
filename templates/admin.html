@@ -1,0 +1,14 @@
+{{define "title"}}后台 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card"><h1>后台</h1>
+<div class="stats"><div><b class="num">{{index .Counts "users"}}</b><span>用户</span></div><div><b class="num">{{index .Counts "open"}}</b><span>在线任务 / {{index .Counts "tasks"}}</span></div><div><b class="num">{{index .Counts "paid"}}</b><span>完成 / {{index .Counts "subs"}} 记录</span></div><div><b class="num" style="color:var(--bad)">{{index .Counts "overdue"}}</b><span>逾期中</span></div><div><b class="num">{{index .Counts "await"}}</b><span>待确认</span></div><div><b class="num">{{index .Counts "bl"}}</b><span>在榜</span></div><div><b class="num">{{.Pool}}</b><span>陪审员池</span></div></div>
+<form method="get" action="/admin/users" class="row"><input name="q" placeholder="搜索 X 用户名 / X ID" style="max-width:280px"><button class="btn sec sm">搜索用户</button></form>
+</section>
+<section class="card"><h2 style="margin-top:0">待管理员处理（{{len .Review}}）</h2>{{if .Review}}<div class="tbl"><table><tr><th>申诉</th><th>类型</th><th>发起</th><th>被诉</th><th>记录</th><th>时间</th></tr>{{range .Review}}<tr><td><a href="{{.Path}}"><code>{{.Code}}</code></a>{{if .AppealBy}} <span class="st warn">上诉</span>{{end}}</td><td>{{dtype .Type}}</td><td>{{with index $.Users .OpenerID}}@{{.Handle}}{{end}}</td><td>{{with index $.Users .AgainstID}}@{{.Handle}}{{end}}</td><td>{{with index $.Subs .SubmissionID}}<a href="{{.Path}}">{{.Code}}</a> <span class="st {{stClass .Status}}">{{subStatus .Status}}</span>{{end}}</td><td class="small muted">{{ago .CreatedAt}}</td></tr>{{end}}</table></div>{{else}}<p class="muted">空。</p>{{end}}</section>
+<section class="card"><h2 style="margin-top:0">举证中（{{len .Evidence}}）· 小法庭（{{len .Jury}}）· 上诉期（{{len .Appeal}}）</h2>
+{{range .Evidence}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · 举证截止 {{ftime .EvidenceUntil}}</div>{{end}}
+{{range .Jury}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · 小法庭 #{{.JuryCaseID}}</div>{{end}}
+{{range .Appeal}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · 上诉期至 {{ftime .AppealUntil}} · {{.ResolutionNote}}</div>{{end}}
+</section>
+<section class="card"><h2 style="margin-top:0">最近黑名单</h2>{{if .RecentBL}}<div class="tbl"><table><tr><th>用户</th><th>身份</th><th>原因</th><th>欠款</th><th>时间</th><th></th></tr>{{range .RecentBL}}<tr><td>{{with index $.Users .UserID}}<a href="/admin/users?id={{.ID}}">@{{.Handle}}</a>{{end}}</td><td>{{.Role}}</td><td>{{.Reason}}</td><td class="num">{{if .AmountOwedE8}}{{amt .AmountOwedE8}}{{end}}</td><td class="small muted">{{fdate .CreatedAt}}</td><td>{{if not .LiftedAt}}<form method="post" action="/admin/blacklist/{{.ID}}/lift" data-confirm="解除？"><input type="hidden" name="note" value="管理员解除"><button class="btn ghost sm">解除</button></form>{{else}}已解除{{end}}</td></tr>{{end}}</table></div>{{else}}<p class="muted">空。</p>{{end}}</section>
+{{end}}

@@ -1,0 +1,130 @@
+{{define "title"}}记录 {{.X.Code}} · {{subStatus .X.Status}} · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="row between"><h1 style="margin:0">记录 <code>{{.X.Code}}</code></h1><span class="st {{stClass .X.Status}}" id="stPill" style="font-size:14px">{{subStatus .X.Status}}</span></div>
+  <div class="kv" style="margin-top:10px">
+    <span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> <code>{{.T.Code}}</code></span>
+    <span class="k">报酬</span><span class="v amt">{{amt .T.RewardE8}} U{{if .X.UnderpaidE8}} <span class="st warn">实收 {{amt .X.UnderpaidE8}} U（少付）</span>{{end}}{{if eq .X.Status "paid"}} <span class="muted">实付 {{amt .X.PaidAmountE8}} U · {{.X.ConfirmMethod}}{{if .X.Late}} · 逾期付款{{end}}</span>{{end}}</span>
+    <span class="k">发布方</span><span class="v">{{if .Owner}}{{template "usermini" .Owner}}{{end}}</span>
+    <span class="k">接单方</span><span class="v">{{if .Worker}}{{template "usermini" .Worker}}{{end}}</span>
+    {{if .X.TweetID}}<span class="k">推文</span><span class="v"><a href="https://x.com/i/web/status/{{.X.TweetID}}" target="_blank" rel="noopener">x.com/i/web/status/{{.X.TweetID}}</a></span>{{end}}
+    {{if eq .X.Status "claimed"}}<span class="k">提交截止</span><span class="v">{{ftime .X.ClaimExpiresAt}}（剩 {{left .X.ClaimExpiresAt}}）</span>{{end}}
+    {{if eq .X.Status "verified"}}<span class="k">留存复检</span><span class="v">{{ftime .X.RecheckDueAt}}（剩 {{left .X.RecheckDueAt}}）{{if .X.RecheckFlag}} · {{.X.RecheckFlag}}{{end}}</span>{{end}}
+    {{if or (eq .X.Status "payable") (eq .X.Status "overdue")}}<span class="k">付款截止</span><span class="v">{{ftime .X.PayDeadlineAt}}（{{left .X.PayDeadlineAt}}）{{if .X.RecheckFlag}} · <span class="st warn">{{.X.RecheckFlag}}</span>{{end}}</span>{{end}}
+    {{if .X.MarkedPaidAt}}<span class="k">发布方标记</span><span class="v">{{ftime .X.MarkedPaidAt}}{{if .X.MarkedOrderID}} · 币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}{{if .X.MarkedNote}} · {{.X.MarkedNote}}{{end}}</span>{{end}}
+    {{if .X.VoidReason}}<span class="k">作废原因</span><span class="v">{{.X.VoidReason}}</span>{{end}}
+  </div>
+  {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  {{if and (eq .X.Status "claimed") .X.LastError}}<div class="notice bad">上次验证未通过：{{.X.LastError}}<br><span class="small">已用 {{.X.VerifyAttempts}}/{{.Cfg.VerifyAttempts}} 次提交机会</span></div>{{end}}
+  {{if and (eq .X.Status "submitted") .X.NextVerifyAt}}<div class="notice"><span class="spin"></span>{{.X.LastError}}（下次 {{ftime .X.NextVerifyAt}}）</div>{{end}}
+  {{if .Dispute}}<div class="notice warn">有申诉进行中：<a href="{{.Dispute.Path}}"><code>{{.Dispute.Code}}</code> {{dtype .Dispute.Type}} · {{dstatus .Dispute.Status}}</a></div>{{end}}
+</section>
+
+{{if .IsWorker}}
+{{if .CanSubmit}}
+<section class="card">
+  <h2 style="margin-top:0">① 发这条推文</h2>
+  <pre class="tweet" id="content">{{.Content}}</pre>
+  <div class="btns"><a class="btn" id="intent" href="{{.IntentURL}}" target="_blank" rel="noopener">🐦 一键去 X 发帖</a><button type="button" class="btn sec copy" data-copy-from="content">复制文案</button></div>
+  <a id="intentAlt" href="{{.IntentURL}}" target="_blank" rel="noopener" hidden class="hint altlink">没拉起 X App？点这里用网页版发 →</a>
+  <div class="hint">{{if eq .T.MatchMode "contains"}}可以加自己的话，但文案要完整保留。{{else}}正文须与文案一致（可复制粘贴）。{{end}}必须是原帖（不能是回复），账号需公开。发完请勿删除{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}{{end}}。</div>
+  <h2>② 把推文链接贴回来</h2>
+  <form method="post" action="/s/{{.X.Code}}/submit">
+    <input name="tweet_url" placeholder="https://x.com/你的名字/status/1234567890" required autocapitalize="off" autocomplete="off">
+    <button class="btn" style="margin-top:10px">提交验证</button>
+  </form>
+</section>
+{{else if eq .X.Status "submitted"}}<section class="card"><p><span class="spin"></span>正在验证推文，通常几秒内完成，本页会自动刷新。</p></section>
+{{else if eq .X.Status "verified"}}<section class="card"><p>✅ 验证通过。请保留推文至 <b>{{ftime .X.RecheckDueAt}}</b>，复检通过后进入待付款；期间删帖或改文会作废。</p></section>
+{{else if eq .X.Status "payable"}}<section class="card"><p>等待发布方付款，截止 <b>{{ftime .X.PayDeadlineAt}}</b>。{{if .Payee.Gateway}}你已绑定自动到账，对方付款后会自动完成。{{else}}对方付款后会登记订单号，你需要在币安 App 核对后点「已收到」。{{end}}</p></section>
+{{else if eq .X.Status "overdue"}}<section class="card"><div class="notice bad">发布方逾期未付（{{ago .X.OverdueAt}}），其账号已冻结。</div>
+  {{range .DisputeOK}}{{if eq . "A"}}<form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="A"><label>举报未付款：补充说明</label><textarea name="text" required minlength="5" placeholder="例：已逾期 N 小时，对方无回应"></textarea><button class="btn danger" style="margin-top:8px">举报未付款</button><div class="hint">举报后对方有 {{dur $.Cfg.GraceReportH}} 宽限，仍不付则核实上黑名单；付清会自动结案。</div></form>{{end}}{{end}}
+</section>
+{{else if eq .X.Status "awaiting_confirm"}}
+<section class="card">
+  <h2 style="margin-top:0">请核对到账</h2>
+  {{if .X.UnderpaidE8}}<div class="notice warn">网关确认到账 <b>{{amt .X.UnderpaidE8}} U</b>，少于应付 {{amt .T.RewardE8}} U。</div>
+    <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>
+  {{else}}<p>发布方于 {{ftime .X.MarkedPaidAt}} 标记已付{{if .X.MarkedOrderID}}，币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}。请打开币安 App → 支付 → 交易记录核对。</p>
+    <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .T.RewardE8}} U？确认后记录完成，不可撤销。"><button class="btn">✅ 已收到，完成</button></form>
+    {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉即解除你的锁定。如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
+    <div class="hint" style="margin-top:8px">标记后 24 小时内未处理，你将暂时不能接新任务。</div>{{end}}
+</section>
+{{end}}
+{{range .DisputeOK}}{{if eq . "C"}}<section class="card"><details class="fold"><summary>认为验证误判？申请人工复核</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="C"><label>说明（附推文链接）</label><textarea name="text" required minlength="5"></textarea><button class="btn sec sm" style="margin-top:8px">申请复核</button><div class="hint">申请后接单倒计时暂停。</div></form></details></section>{{end}}{{end}}
+{{end}}
+
+{{if .IsOwner}}
+{{if or .CanMark .CanPay}}
+<section class="card" id="pay">
+  <h2 style="margin-top:0">付款 <span class="amt">{{.Amount}} U</span>{{if .TopupE8}} <span class="muted small">（补差）</span>{{end}}</h2>
+  {{if or (eq .X.Status "overdue") (eq .X.Status "disputed")}}<div class="notice bad">已逾期{{if eq .X.Status "disputed"}}并被举报{{end}}，你的账号处于冻结状态，付清后自动解冻。</div>{{end}}
+  {{if not .Payee}}<div class="notice bad">接单方还没有绑定收款 UID，暂时无法付款，请等待或联系管理员。</div>
+  {{else if .CanPay}}
+    {{if .ActivePay}}
+      <div class="notice ok">按下面的<b>唯一金额一分不差</b>转账，网关几秒内自动确认。会话 {{ftime .ActivePay.ExpiresAt}} 过期，过期再点一次生成新金额即可。</div>
+      <div class="kv">
+        <span class="k">金额</span><span class="v"><b class="num" style="font-size:20px">{{.ActivePay.PayAmount}}</b> {{.T.Currency}} <button type="button" class="copy" data-copy="{{.ActivePay.PayAmount}}">复制</button></span>
+        <span class="k">收款 UID</span><span class="v"><code>{{.ActivePay.ReceiveUID}}</code><button type="button" class="copy" data-copy="{{.ActivePay.ReceiveUID}}">复制</button></span>
+        {{if .ActivePay.NoteCode}}<span class="k">备注（可选）</span><span class="v"><code>{{.ActivePay.NoteCode}}</code><button type="button" class="copy" data-copy="{{.ActivePay.NoteCode}}">复制</button></span>{{end}}
+      </div>
+      {{if .QR}}<img class="qr" src="data:image/png;base64,{{.QR}}" alt="收款二维码"><div class="hint" style="text-align:center">币安 App 首页「扫一扫」→ 输入金额 {{.ActivePay.PayAmount}}</div>{{end}}
+      <div class="hint">币安 App → 底部「支付」→「转账」→ 收款方输入 UID → 金额填 <b>{{.ActivePay.PayAmount}}</b> → 转账。<span class="spin" id="paySpin"></span><span id="payMsg">等待到账，本页自动更新</span></div>
+      <details class="fold"><summary>付了但一直没确认？</summary>
+        <form id="claimForm"><label>币安订单编号（18 位数字，转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" required><button class="btn sec sm" style="margin-top:8px">让网关核对这笔转账</button><div class="hint" id="claimMsg"></div></form>
+        <div class="hint">网关看不到你的转账（地区限制、对方 Key 失效等）时，可改用下面的「手动登记」，由接单方确认。</div>
+      </details>
+    {{else}}
+      <form method="post" action="/s/{{.X.Code}}/pay/order"><button class="btn">去付款（生成唯一金额，自动确认到账）</button></form>
+    {{end}}
+    <details class="fold"><summary>改为手动登记（已转账但不走自动确认）</summary>{{template "markform" .}}</details>
+  {{else}}
+    <div class="notice">接单方使用手动确认。请转账后填写币安订单编号登记，由接单方核对确认。</div>
+    <div class="kv">
+      <span class="k">收款 UID</span><span class="v"><code>{{.Payee.BinanceUID}}</code><button type="button" class="copy" data-copy="{{.Payee.BinanceUID}}">复制</button></span>
+      {{if .Payee.ReceiveEmail}}<span class="k">或邮箱</span><span class="v">{{.Payee.ReceiveEmail}}</span>{{end}}
+      <span class="k">金额</span><span class="v"><b class="num">{{.Amount}}</b> {{.T.Currency}} <button type="button" class="copy" data-copy="{{.Amount}}">复制</button></span>
+      <span class="k">备注建议</span><span class="v"><code>{{.X.Code}}</code><button type="button" class="copy" data-copy="{{.X.Code}}">复制</button></span>
+    </div>
+    <div class="hint">币安 App → 底部「支付」→「转账」→ 输入 UID → 金额 → 备注 → 转账 → 回来登记订单编号。</div>
+    {{template "markform" .}}
+  {{end}}
+</section>
+{{else if eq .X.Status "awaiting_confirm"}}<section class="card"><p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。对方 24 小时内未处理会被锁定接单。</p></section>
+{{else if eq .X.Status "verified"}}<section class="card"><p>推文已验证，留存复检 {{ftime .X.RecheckDueAt}} 后进入待付款。</p></section>
+{{end}}
+{{range .DisputeOK}}{{if eq . "D"}}<section class="card"><details class="fold"><summary>复检未确认，推文有问题？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="D"><label>说明（之后可上传截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn sec sm" style="margin-top:8px">申诉：推文不合格</button><div class="hint">申诉期间付款倒计时暂停；不成立则顺延。</div></form></details></section>{{end}}{{end}}
+{{end}}
+
+{{if .IsAdmin}}<section class="card"><h2 style="margin-top:0">管理员操作</h2><div class="btns">
+  <form method="post" action="/admin/sub/{{.X.Code}}/void" data-confirm="作废这条记录？"><input type="hidden" name="reason" value="管理员"><button class="btn danger sm">作废</button></form>
+  <form method="post" action="/admin/sub/{{.X.Code}}/paid" data-confirm="按已付完成？"><button class="btn sec sm">置为已完成</button></form>
+  {{if eq .X.Status "defaulted"}}<form method="post" action="/admin/sub/{{.X.Code}}/repaid"><button class="btn sec sm">登记已补付</button></form>{{end}}
+  <form method="post" action="/admin/sub/{{.X.Code}}/verify" class="row"><input name="tweet_url" placeholder="推文链接" style="width:260px"><button class="btn sec sm">强制通过验证</button></form>
+</div></section>{{end}}
+
+{{if .Payments}}<section class="card"><h2 style="margin-top:0">付款单</h2><div class="tbl"><table><tr><th>网关单号</th><th>类型</th><th>应付</th><th>状态</th><th>实付</th><th>时间</th></tr>{{range .Payments}}<tr><td><code>{{.MerchantOrderID}}</code></td><td>{{.Kind}}</td><td class="num">{{.PayAmount}}</td><td><span class="st {{if eq .Status "paid"}}good{{else if eq .Status "pending"}}wait{{else if eq .Status "underpaid"}}warn{{else}}muted{{end}}">{{.Status}}</span></td><td class="num">{{if .ActualE8}}{{amt .ActualE8}}{{end}}</td><td class="small muted">{{ftime .CreatedAt}}</td></tr>{{end}}</table></div></section>{{end}}
+
+{{if .Disputes}}<section class="card"><h2 style="margin-top:0">申诉</h2>{{range .Disputes}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · <span class="st {{stClass .Status}}">{{dstatus .Status}}</span>{{if .Resolution}} · {{.ResolutionNote}}{{end}}</div>{{end}}</section>{{end}}
+
+<section class="card"><h2 style="margin-top:0">时间线</h2><ul class="tl">
+  <li><span class="t">{{ftime .X.ClaimedAt}}</span>接单，锁定名额</li>
+  {{range .Timeline}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}}{{if .ActorID}} · {{with index $.Actors .ActorID}}@{{.Handle}}{{end}}{{end}}{{if .Meta}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}
+</ul></section>
+{{end}}
+{{define "markform"}}<form method="post" action="/s/{{.X.Code}}/pay/mark" data-confirm="确认已向接单方转账并登记？虚假标记查实将进入黑名单。">
+  <label>币安订单编号（必填，18 位数字，币安 App 转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" pattern="[0-9]{18}" required>
+  <label>备注（可选）</label><input name="note" maxlength="200">
+  <button class="btn" style="margin-top:10px">我已付款，登记</button>
+</form>{{end}}
+{{define "scripts"}}<script>
+(function(){
+  var link=document.getElementById('intent'),c=document.getElementById('content');if(link&&c)window.bindIntent(link,function(){return c.textContent},document.getElementById('intentAlt'));
+  var st={{.X.Status}},code={{.X.Code}},active={{if .ActivePay}}true{{else}}false{{end}},fails=0;
+  var poll=(st==='submitted')||(active)||(st==='awaiting_confirm'&&{{if .IsOwner}}true{{else}}false{{end}});
+  function tick(){fetch('/s/'+code+'/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){fails=0;if(j.status!==st){location.reload();return}if(j.pay&&j.pay.status!=='pending'&&active){location.reload()}}).catch(function(){if(++fails>20)poll=false})}
+  if(poll)setInterval(tick,4000);
+  var cf=document.getElementById('claimForm');if(cf)cf.addEventListener('submit',function(e){e.preventDefault();var fd=new FormData(cf),m=document.getElementById('claimMsg');m.textContent='核对中…';
+    fetch('/s/'+code+'/pay/claim',{method:'POST',body:new URLSearchParams(fd)}).then(function(r){return r.json()}).then(function(j){m.textContent=j.msg||'';if(j.ok)setTimeout(function(){location.reload()},800)}).catch(function(){m.textContent='网络错误'})});
+})();
+</script>{{end}}

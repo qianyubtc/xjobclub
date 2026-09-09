@@ -1,0 +1,5 @@
+# 追加到 /etc/caddy/Caddyfile；改完只 `sudo caddy validate --config /etc/caddy/Caddyfile` + `sudo systemctl reload caddy`
+xjob.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8125
+}
