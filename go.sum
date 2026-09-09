@@ -10,8 +10,8 @@ github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsRe
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
-github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260904013948-0e0f73e2c78c h1:fZHgMnCWbY8P+BWIdOmGdf8ORBxisYjr05TnwTmvjXY=
-github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260904013948-0e0f73e2c78c/go.mod h1:Lj7i4kgk6+PKEAxGLNeq5pMoMH94xN4fZSvx1u5QeJ0=
+github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260909121148-0061ece9fa74 h1:uWB5/PIX5a/wqd0OOOj6eIjHwR2uVB04aaYCmqaV7wc=
+github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260909121148-0061ece9fa74/go.mod h1:Lj7i4kgk6+PKEAxGLNeq5pMoMH94xN4fZSvx1u5QeJ0=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1vwZ3Je0FKVCfqOLp5zO6trqMLYs0=

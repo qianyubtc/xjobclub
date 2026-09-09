@@ -288,7 +288,7 @@ func (a *App) syncPaymentNow(p *Payment) {
 		log.Printf("[warn] 查单 %s: %v", p.MerchantOrderID, err)
 		return
 	}
-	a.applyGateway(p, o.Status, o.ActualAmount, o.PayAmount, o.MatchedBy, o.BinanceOrderID, o.PayerID, "", o.PaidAt, "")
+	a.applyGateway(p, o.Status, o.ActualAmount, o.PayAmount, o.MatchedBy, o.BinanceOrderID, o.PayerID, o.CounterpartyID, o.PaidAt, "")
 }
 
 // closePendingForSub 记录到达终态 / 已登记手动付款：关掉名下仍 pending 的网关订单，释放唯一金额。
@@ -328,12 +328,7 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown order", http.StatusNotFound)
 		return
 	}
-	// 新版网关回调带 counterparty_id（付款方稳定标识）；老版没有该字段则退回 payer_id
-	var extra struct {
-		CounterpartyID string `json:"counterparty_id"`
-	}
-	json.Unmarshal(body, &extra)
-	a.applyGateway(p, cb.Status, cb.ActualAmount, cb.PayAmount, cb.MatchedBy, cb.BinanceOrderID, cb.PayerID, extra.CounterpartyID, cb.PaidAt, string(body))
+	a.applyGateway(p, cb.Status, cb.ActualAmount, cb.PayAmount, cb.MatchedBy, cb.BinanceOrderID, cb.PayerID, cb.CounterpartyID, cb.PaidAt, string(body))
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
 }

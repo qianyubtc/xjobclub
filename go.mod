@@ -3,7 +3,7 @@ module github.com/qianyubtc/xjobclub
 go 1.27.1
 
 require (
-	github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260904013948-0e0f73e2c78c
+	github.com/qianyubtc/BinancePayTool/sdk/go v0.0.0-20260909121148-0061ece9fa74
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.57.0
