@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log"
 	"math"
 	"net"
 	"net/http"
@@ -471,4 +472,16 @@ func intentFor(text string) string { return "https://x.com/intent/post?text=" + 
 func dayStartMs() int64 {
 	t := time.Now()
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).UnixMilli()
+}
+
+// safeGo 起后台 goroutine 并兜住 panic（一个抓取异常不该拖垮整个进程）。
+func safeGo(name string, f func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[error] 后台任务 %s panic: %v", name, r)
+			}
+		}()
+		f()
+	}()
 }

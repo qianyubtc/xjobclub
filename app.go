@@ -25,6 +25,7 @@ var staticFS embed.FS
 
 type App struct {
 	adminBound sync.Map // handle → 已绑定的 X 数字 ID
+	ipTouched  sync.Map // userID → 上次写 ip_log 的时间（每 10 分钟一次，别每个请求都写库）
 	cfg        *Config
 	st         *Store
 	mux        *http.ServeMux
@@ -128,6 +129,7 @@ func (a *App) funcs() template.FuncMap {
 		"i64":       func(i int) int64 { return int64(i) },
 		"xlink":     xUserLink,
 		"kindText":  kindText,
+		"has":       strings.Contains,
 		"auditText": auditText,
 		"payAmt":    payAmount,
 		"trunc":     truncate,
@@ -343,6 +345,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+	if strings.HasPrefix(a.cfg.BaseURL, "https://") {
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+	}
 	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
 	if r.URL.Path != "/bpg/notify" {
 		limit := int64(64 << 10)
@@ -387,7 +393,10 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		if a.cfg.ReviewEnabled {
 			b.ReviewN = a.st.ReviewPendingFor(b.Me.ID)
 		}
-		a.st.TouchIP(b.Me.ID, a.ip(r))
+		if v, ok := a.ipTouched.Load(b.Me.ID); !ok || b.Now-v.(int64) > 10*60*1000 {
+			a.ipTouched.Store(b.Me.ID, b.Now)
+			a.st.TouchIP(b.Me.ID, a.ip(r))
+		}
 	}
 	if w != nil {
 		b.Flash = a.takeFlash(w, r)

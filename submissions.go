@@ -158,7 +158,8 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	if t.CPM() && x.AmountE8 == 0 {
 		p.EstE8 = cpmAmount(t, x.Views)
 		if x.Status == SVerified && ms()-x.ViewsAt > 10*60*1000 && a.lim.allow("views:"+strconv.FormatInt(x.ID, 10), 1, 10*time.Minute) {
-			go a.sampleViews(x.ID, x.TweetID) // 记录页顺手刷新一次浏览量（异步，10 分钟一次）
+			sid, tid := x.ID, x.TweetID
+			safeGo("views", func() { a.sampleViews(sid, tid) }) // 记录页顺手刷新一次浏览量（异步，10 分钟一次）
 		}
 	}
 	if t.CPM() && p.IsOwner && x.Views > 5000 && p.Worker != nil && p.Worker.Followers > 0 && x.Views > 50*p.Worker.Followers {

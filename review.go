@@ -158,6 +158,7 @@ func (a *App) reviewTick(now int64) {
 type reviewPage struct {
 	Base
 	Tasks    []*Task
+	Voted    []*Task // 我投过、仍在审核中的
 	Owners   map[int64]*User
 	Stats    map[int64]PubStats
 	Infos    map[int64]*ReviewInfo
@@ -184,6 +185,10 @@ func (a *App) handleReview(w http.ResponseWriter, r *http.Request) {
 				p.Stats[t.OwnerID] = a.st.PubStats(t.OwnerID)
 			}
 		}
+		p.Infos[t.ID] = a.reviewInfo(t, u)
+	}
+	p.Voted, _ = a.st.ReviewVotedFor(u.ID)
+	for _, t := range p.Voted {
 		p.Infos[t.ID] = a.reviewInfo(t, u)
 	}
 	p.MyVotes = a.st.VotesSince(u.ID, 0)

@@ -6,16 +6,19 @@
   {{if .Review}}<div class="notice {{if eq .T.Status "rejected"}}bad{{else if .Review.Hold}}warn{{end}}">{{if eq .T.Status "rejected"}}未通过审核：{{.T.ReviewNote}}{{if .IsOwner}} 可以修改文案后重新提交审核。{{end}}{{else if .Review.Hold}}审核期满仍有反对票，等待管理员裁定（{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对）。{{else}}社区审核中：{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对，截止 {{ftime .Review.Deadline}}。通过后才会出现在大厅并开放接单。{{end}}</div>
   {{if and .IsOwner .Review.Reasons}}<details class="fold" style="margin-bottom:10px"><summary>反对票理由（{{len .Review.Reasons}}）</summary><ul class="small">{{range .Review.Reasons}}<li>{{.Reason}} <span class="muted">· {{ago .CreatedAt}}</span></li>{{end}}</ul></details>{{end}}
   {{if and (not .IsOwner) (eq .T.Status "review")}}{{template "votebox" (dict "T" .T "R" .Review "Reasons" .VoteReasons "Next" .T.Path)}}{{end}}{{end}}
+  <div class="facts">
+    <div><b class="num">{{.T.Left}} <small>/ {{.T.SlotsTotal}}</small></b><span>剩余名额</span></div>
+    <div><b>{{durMin .T.ClaimTTLMin}}</b><span>{{if .T.Manual}}完成并提交{{else}}回填链接{{end}}时限</span></div>
+    <div><b>{{if .T.Manual}}核对{{else if .T.RetentionH}}{{dur .T.RetentionH}}{{else}}无{{end}}</b><span>{{if .T.Manual}}发布方核对{{else}}留存复检{{end}}</span></div>
+    <div><b>{{dur .T.PayWindowH}}</b><span>付款时限</span></div>
+    <div><b>{{fdate .T.DeadlineAt}}</b><span>任务截止</span></div>
+  </div>
+  <div class="hint">{{if .T.Manual}}接单后 {{durMin .T.ClaimTTLMin}} 内完成{{.T.DoneVerb}}并提交核对，发布方 48 小时不处理视为通过；{{else}}接单后 {{durMin .T.ClaimTTLMin}} 内回填{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}链接{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}，验证通过即待付款{{end}}；{{end}}待付款后 {{dur .T.PayWindowH}} 内付款，发布方逾期会被冻结并可被举报。</div>
   <div class="kv">
     {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">任务类型</span><span class="v"><b>{{.T.KindText}}</b>{{if eq .T.Kind "reply"}}：在目标推文下方直接回复{{else if eq .T.Kind "like"}}：给目标推文点赞，由发布方核对{{else}}：转发目标推文，系统自动检测或由发布方核对{{end}}</span>
     <span class="k">目标推文</span><span class="v"><a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}}<div class="small muted">{{trunc .T.TargetText 80}}</div>{{end}}</span>{{end}}
     {{if .T.CPM}}<span class="k">计价方式</span><span class="v">按浏览量：每千次浏览 <b>{{amt .T.CpmE8}} U</b>，保底 {{amt .T.FloorE8}} U，封顶 {{amt .T.RewardE8}} U。留存期结束复检通过时读取推文浏览量，一次算清；之后涨跌不再调整。</span>{{end}}
-    <span class="k">剩余名额</span><span class="v num">{{.T.Left}} / {{.T.SlotsTotal}}（已完成 {{.T.DoneCount}}）</span>
-    <span class="k">接单时限</span><span class="v">接单后 {{durMin .T.ClaimTTLMin}} 内{{if .T.Manual}}完成{{.T.DoneVerb}}并提交核对{{else if eq .T.Kind "reply"}}回填你的评论链接{{else}}回填推文链接{{end}}</span>
-    <span class="k">留存要求</span><span class="v">{{if .T.Manual}}无法复检，发布方核对通过即待付款（48 小时不处理视为通过）{{else if .T.RetentionH}}{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}无留存要求（验证通过即待付款）{{end}}</span>
-    <span class="k">付款时限</span><span class="v">待付款后 {{dur .T.PayWindowH}} 内，发布方逾期会被冻结并可被举报</span>
     {{if not .T.Manual}}<span class="k">匹配方式</span><span class="v">{{if eq .T.MatchMode "any"}}自由发挥：评论内容不限，至少 {{.T.MinLen}} 个字{{else if eq .T.MatchMode "contains"}}包含即可：{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}里完整包含文案，可以加自己的话{{else}}全文一致：正文须与文案一致（空白与链接写法不计）{{end}}</span>{{end}}
-    <span class="k">任务截止</span><span class="v">{{ftime .T.DeadlineAt}}</span>
     {{if or .T.MinAccountDays .T.MinFollowers}}<span class="k">接单要求</span><span class="v">{{if .T.MinAccountDays}}X 账号注册满 {{.T.MinAccountDays}} 天{{end}}{{if and .T.MinAccountDays .T.MinFollowers}} · {{end}}{{if .T.MinFollowers}}粉丝 ≥ {{.T.MinFollowers}}{{end}}</span>{{end}}
   </div>
   {{if .T.Manual}}<div class="hint" style="margin-top:10px">{{if eq .T.Kind "like"}}用你注册时的 X 账号给目标推文点赞，回来点「提交核对」。平台读不到点赞名单，由发布方在自己推文的点赞列表里核对。{{else}}用你注册时的 X 账号直接转发目标推文（不是引用），回来点「提交核对」。系统会从你的公开时间线自动检测，检测不到则由发布方核对。{{end}}任务期内请勿取消。</div>
@@ -72,7 +75,7 @@
   {{if and .Me (not .Block)}}<form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单（锁定名额 {{durMin .T.ClaimTTLMin}}）</button></form>
   <div class="ctabar"><div class="price">{{if .T.CPM}}{{amt .T.CpmE8}}<small>U / 千浏览</small>{{else}}{{amt .T.RewardE8}}<small>U / {{.T.Unit}}</small>{{end}}</div><form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单 · 剩 {{.T.Left}}</button></form></div>
   <div class="hint">{{if .T.Manual}}接单后去{{.T.DoneVerb}}目标推文，回来提交核对；发布方 48 小时内核对，不处理视为通过。{{else if eq .T.Kind "reply"}}接单后在目标推文下评论，回填你的评论链接自动验证。发完再删会作废{{if .T.RetentionH}}，留存期后复检{{end}}。{{else}}接单后按分配到的文案发帖，回填链接自动验证。发完再删会作废，留存期后复检。{{end}}</div>
-  {{else if .Me}}<div class="notice warn">{{.Block}}{{if and .T.MinFollowers (lt .Me.Followers .T.MinFollowers)}} <a href="/me?tab=settings">粉丝数不对？去刷新</a>{{end}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div><div class="ctabar"><div class="price">{{if .T.CPM}}{{amt .T.CpmE8}}<small>U / 千浏览</small>{{else}}{{amt .T.RewardE8}}<small>U / {{.T.Unit}}</small>{{end}}</div><a class="btn" href="/login?next={{.T.Path}}">登录后接单 · 剩 {{.T.Left}}</a></div>{{end}}
+  {{else if .Me}}<div class="notice warn">{{.Block}}{{if and .T.MinFollowers (has .Block "粉丝")}} <a href="/me?tab=settings">粉丝数不对？去刷新</a>{{end}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div><div class="ctabar"><div class="price">{{if .T.CPM}}{{amt .T.CpmE8}}<small>U / 千浏览</small>{{else}}{{amt .T.RewardE8}}<small>U / {{.T.Unit}}</small>{{end}}</div><a class="btn" href="/login?next={{.T.Path}}">登录后接单 · 剩 {{.T.Left}}</a></div>{{end}}
   {{if .Me}}<details class="fold" style="margin-top:14px"><summary>举报这个任务</summary><form method="post" action="/report/task/{{.T.Code}}"><label>理由（诈骗、违法、侮辱等）</label><textarea name="text" required minlength="5" maxlength="1000"></textarea><button class="btn sec sm" style="margin-top:8px">提交举报</button></form></details>{{end}}
 </section>
 {{end}}

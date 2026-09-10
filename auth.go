@@ -218,7 +218,7 @@ func (a *App) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	a.logf("[info] 新用户 #%d @%s", id, prof.Handle)
 	if created, err := a.st.GetUserByID(id); err == nil && created != nil {
 		a.login(w, created)
-		go a.refreshFollowers(created, true)
+		safeGo("followers", func() { a.refreshFollowers(created, true) })
 	}
 	a.flash(w, "注册成功。先绑定收款方式，接单和发布都需要它。")
 	http.Redirect(w, r, "/me/pay", http.StatusFound)

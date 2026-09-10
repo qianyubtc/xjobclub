@@ -199,6 +199,11 @@ func (s *Store) ReviewTasksFor(userID int64) ([]*Task, error) {
 	return s.queryTasks(`WHERE status='review' AND owner_id<>? AND NOT EXISTS (SELECT 1 FROM task_votes v WHERE v.task_id=tasks.id AND v.user_id=?) ORDER BY review_started_at ASC LIMIT 100`, userID, userID)
 }
 
+// ReviewVotedFor 我投过、还在审核中的任务（看进度用）。
+func (s *Store) ReviewVotedFor(userID int64) ([]*Task, error) {
+	return s.queryTasks(`WHERE status='review' AND EXISTS (SELECT 1 FROM task_votes v WHERE v.task_id=tasks.id AND v.user_id=?) ORDER BY review_started_at DESC LIMIT 50`, userID)
+}
+
 func (s *Store) ReviewPendingFor(userID int64) int64 {
 	return s.count(`SELECT COUNT(*) FROM tasks WHERE status='review' AND owner_id<>? AND NOT EXISTS (SELECT 1 FROM task_votes v WHERE v.task_id=tasks.id AND v.user_id=?)`, userID, userID)
 }

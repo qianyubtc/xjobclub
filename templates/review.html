@@ -15,5 +15,6 @@
   {{template "votebox" (dict "T" . "R" $r "Reasons" $.Reasons "Next" "/review")}}
 </section>
 {{else}}<div class="empty"><div class="big">暂时没有待审核的任务</div><p class="muted">新任务发布后会先出现在这里。</p></div>{{end}}
+{{if .Voted}}<section class="card flat"><div class="sec-h"><h2>我投过的，还在审核中</h2><span class="eyebrow">{{len .Voted}} 个</span></div>{{range .Voted}}{{$r := index $.Infos .ID}}<div class="note"><a href="{{.Path}}">{{.Title}}</a><span class="small muted">{{if eq $r.MyVote 1}}我投了没问题{{else}}我投了有问题{{end}} · {{$r.Pass}} 通过 / {{$r.Fail}} 反对 · 截止 {{ftime $r.Deadline}}</span></div>{{end}}</section>{{end}}
 {{end}}
 {{define "scripts"}}{{end}}

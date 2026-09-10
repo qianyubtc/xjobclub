@@ -158,7 +158,8 @@ func (a *App) verifySubmission(x *Submission) {
 	}
 	a.st.Audit(0, "sub.verified", "submission", x.ID, map[string]any{"tweet": x.TweetID}, "")
 	if t.CPM() {
-		go a.sampleViews(x.ID, x.TweetID)
+		sid, tid := x.ID, x.TweetID
+		safeGo("views", func() { a.sampleViews(sid, tid) })
 	}
 	if recheck > 0 {
 		a.notify(w.ID, "verify", "验证通过", fmt.Sprintf("推文需保留 %s，复检通过后进入待付款。", dur(t.RetentionH)), x.Path())
