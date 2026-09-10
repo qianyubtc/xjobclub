@@ -790,3 +790,23 @@ func claimTodo(t *Task) string {
 	}
 	return "发帖并回填链接"
 }
+
+// handleEligibleCount 发布表单实时提示：按 X 账号年龄与粉丝数门槛，当前有多少用户够格。
+func (a *App) handleEligibleCount(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireUser(w, r); !ok {
+		return
+	}
+	days, _ := strconv.ParseInt(r.URL.Query().Get("days"), 10, 64)
+	fans, _ := strconv.ParseInt(r.URL.Query().Get("fans"), 10, 64)
+	if days < 0 {
+		days = 0
+	}
+	if fans < 0 {
+		fans = 0
+	}
+	total := a.st.count(`SELECT COUNT(*) FROM users`)
+	n := a.st.count(`SELECT COUNT(*) FROM users WHERE (?=0 OR (x_created_ms>0 AND x_created_ms<?)) AND (?=0 OR followers>=?)`, days, ms()-days*dayMs, fans, fans)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprintf(w, `{"n":%d,"total":%d}`, n, total)
+}

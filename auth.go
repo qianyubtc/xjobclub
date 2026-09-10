@@ -153,7 +153,7 @@ func (a *App) handleRegisterGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRegisterVerify(w http.ResponseWriter, r *http.Request) {
-	if a.limited(w, r, "verify", 10, 10*time.Minute) {
+	if a.limited(w, r, "verify", 30, 10*time.Minute) {
 		return
 	}
 	v, tw, msg := a.verifyTweet(r, "register")
@@ -183,7 +183,7 @@ func (a *App) handleRegisterVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
-	if a.limited(w, r, "register", 5, 10*time.Minute) {
+	if a.limited(w, r, "register", 15, 10*time.Minute) {
 		return
 	}
 	v, prof, msg := a.loadVerified(r, "register")
@@ -231,7 +231,7 @@ func (a *App) handleResetGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleResetVerify(w http.ResponseWriter, r *http.Request) {
-	if a.limited(w, r, "verify", 10, 10*time.Minute) {
+	if a.limited(w, r, "verify", 30, 10*time.Minute) {
 		return
 	}
 	v, tw, msg := a.verifyTweet(r, "reset")

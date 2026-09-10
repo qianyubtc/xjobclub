@@ -350,3 +350,4 @@ details.fold summary{font-size:14px}
 @media (max-width:640px){.stats.six{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .stats.five{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:640px){.stats.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.elig{font-weight:700;color:var(--ink2)}.elig.bad{color:var(--red)}

@@ -1836,3 +1836,19 @@ func merge(a, b url.Values) url.Values {
 	}
 	return out
 }
+
+func TestEligibleCount(t *testing.T) {
+	e := newEnv(t, "")
+	b := e.browser("cnt")
+	if resp, _ := b.get("/new/eligible?days=0&fans=0"); resp.StatusCode != 302 && resp.StatusCode != 401 && resp.StatusCode != 403 {
+		t.Fatalf("anon should not get counts: %d", resp.StatusCode)
+	}
+	u := b.register("cnt", "5001")
+	e.a.st.SetFollowers(u.ID, 800)
+	if _, body := b.get("/new/eligible?days=0&fans=500"); !strings.Contains(body, `"n":1`) || !strings.Contains(body, `"total":1`) {
+		t.Fatalf("eligible count: %s", body)
+	}
+	if _, body := b.get("/new/eligible?days=0&fans=5000"); !strings.Contains(body, `"n":0`) {
+		t.Fatalf("eligible count high bar: %s", body)
+	}
+}

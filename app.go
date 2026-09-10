@@ -295,6 +295,7 @@ func (a *App) routes() {
 	m.HandleFunc("GET /t/{code}", a.handleTask)
 	m.HandleFunc("POST /t/{code}/claim", a.handleClaim)
 	m.HandleFunc("GET /review", a.handleReview)
+	m.HandleFunc("GET /new/eligible", a.handleEligibleCount)
 	m.HandleFunc("POST /review/{code}/vote", a.handleReviewVote)
 	m.HandleFunc("POST /t/{code}/{action}", a.handleTaskAction)
 	// 接单记录

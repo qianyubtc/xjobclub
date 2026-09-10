@@ -46,7 +46,7 @@
       <div><label for="pay_window">付款时限</label><select id="pay_window" name="pay_window">{{range $v := .Cfg.PayWindowOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.PayWindow}}selected{{end}}>{{dur $v}}</option>{{end}}</select><div class="hint">越短越吸引接单方；逾期会被冻结</div></div>
       <div><label for="deadline">任务截止（天）</label><input id="deadline" name="deadline" inputmode="numeric" value="{{.F.Deadline}}"><div class="hint">1–{{.Cfg.DeadlineMax}} 天，到期停止接单</div></div>
       <h3 class="fs" style="grid-column:1/-1">接单要求</h3>
-      <div><label for="min_days">X 账号注册满（天）</label><input id="min_days" name="min_days" inputmode="numeric" value="{{.F.MinDays}}"><div class="hint">0 = 不限；按 X 数字 ID 估算，挡新注册小号</div></div>
+      <div><label for="min_days">X 账号注册满（天）</label><input id="min_days" name="min_days" inputmode="numeric" value="{{.F.MinDays}}"><div class="hint">0 = 不限；按 X 数字 ID 估算，挡新注册小号 <span id="eligHint" class="elig"></span></div></div>
       <div><label for="min_followers">粉丝数 ≥</label><input id="min_followers" name="min_followers" inputmode="numeric" value="{{.F.MinFans}}"><div class="hint">0 = 不限；粉丝数取自 X 公开接口，接单时校验，每天更新</div></div>
     </div>
     {{end}}
@@ -66,6 +66,10 @@
   var seg=document.getElementById('kindSeg'),slots=document.getElementById('slots'),wrap=document.getElementById('slotsWrap');
   if(seg){var prev=slots.value==='1'?'5':slots.value;seg.addEventListener('change',function(e){var one=e.target.value==='one';document.getElementById('kindOne').classList.toggle('on',one);document.getElementById('kindMany').classList.toggle('on',!one);
     if(one){prev=slots.value!=='1'?slots.value:prev;slots.value='1';wrap.hidden=true}else{slots.value=prev||'5';wrap.hidden=false;slots.focus()}})}
+  // 接单要求实时提示：当前有多少用户满足
+  (function(){var d=document.getElementById('min_days'),f=document.getElementById('min_followers'),h=document.getElementById('eligHint');if(!d||!f||!h)return;var tm;
+    function upd(){clearTimeout(tm);tm=setTimeout(function(){fetch('/new/eligible?days='+encodeURIComponent(d.value||0)+'&fans='+encodeURIComponent(f.value||0),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(!j||!j.total){h.textContent='';return}var pct=Math.round(j.n*100/j.total);h.textContent='· 当前约 '+j.n+' / '+j.total+' 位用户满足这两项要求';h.classList.toggle('bad',pct<10)}).catch(function(){})},350)}
+    d.addEventListener('input',upd);f.addEventListener('input',upd);upd()})();
   var pseg=document.getElementById('priceSeg');
   function applyPrice(m){var cpm=m==='cpm';var fw=document.getElementById('fixedWrap'),cw=document.getElementById('cpmWrap'),rw=document.getElementById('reward'),cp=document.getElementById('cpm'),cap=document.getElementById('cap_amt');
     if(fw)fw.hidden=cpm;if(cw)cw.hidden=!cpm;if(rw)rw.required=!cpm;if(cp)cp.required=cpm;if(cap)cap.required=cpm;
