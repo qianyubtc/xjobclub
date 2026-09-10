@@ -197,7 +197,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	p.Counts.Users = a.st.count(`SELECT COUNT(*) FROM users`)
-	p.Counts.Open = a.st.count(`SELECT COUNT(*) FROM tasks WHERE status='open' AND deadline_at>?`, ms())
+	p.Counts.Open = a.st.count(`SELECT COUNT(*) FROM tasks WHERE status='open' AND deadline_at>? AND slots_total>(SELECT COUNT(*) FROM submissions x WHERE x.task_id=tasks.id AND x.status NOT IN ('expired','void'))`, ms()) // 与大厅列表同口径：名额已满的不算「可接」
 	p.Counts.Paid = a.st.count(`SELECT COUNT(*) FROM submissions WHERE status='paid'`)
 	p.PaidSum = a.st.sum(`SELECT SUM(paid_amount_e8) FROM submissions WHERE status='paid'`)
 	if rows, err := a.st.db.Query(`SELECT u.handle, x.paid_amount_e8, x.confirmed_at FROM submissions x JOIN users u ON u.id=x.worker_id WHERE x.status='paid' ORDER BY x.confirmed_at DESC LIMIT 12`); err == nil {
