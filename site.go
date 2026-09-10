@@ -109,6 +109,7 @@ type profilePage struct {
 	Certified  bool
 	Tasks      []*Task
 	XCreated   int64
+	Done       []PublicRecord
 }
 
 func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +132,7 @@ func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
 	p.BL, _ = a.st.BlacklistForUser(u.ID)
 	p.ActiveBL, _ = a.st.ActiveBlacklist(u.ID)
 	p.Certified = u.CertPaidAt > 0
+	p.Done, _ = a.st.UserDoneRecords(u.ID, 20)
 	all, _ := a.st.TasksByOwner(u.ID)
 	for _, t := range all {
 		if t.Status == "open" && t.DeadlineAt > ms() {
@@ -186,4 +188,42 @@ func xUserLink(xid, handle string) string {
 		return "https://x.com/i/user/" + xid
 	}
 	return "https://x.com/" + handle
+}
+
+type recordsPage struct {
+	Base
+	Tab    string
+	Rows   []PublicRecord
+	Total  int64
+	Page   int
+	Pages  int
+	Counts map[string]int64
+}
+
+// handleRecords 公开成交记录：谁接了、谁完成了、谁逾期了。不含任何付款细节。
+func (a *App) handleRecords(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if _, ok := publicStatuses[tab]; !ok {
+		tab = ""
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const size = 30
+	rows, total, err := a.st.PublicRecords(tab, size, (page-1)*size)
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	p := recordsPage{Base: a.base(w, r), Tab: tab, Rows: rows, Total: total, Page: page, Pages: int((total + size - 1) / size), Counts: map[string]int64{}}
+	for _, k := range []string{"", "done", "active", "overdue"} {
+		sts := publicStatuses[k]
+		args := []any{}
+		for _, st := range sts {
+			args = append(args, st)
+		}
+		p.Counts[k] = a.st.count(`SELECT COUNT(*) FROM submissions WHERE status IN (`+placeholders(len(sts))+`)`, args...)
+	}
+	a.render(w, http.StatusOK, "records", p)
 }

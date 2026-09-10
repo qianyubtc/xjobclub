@@ -258,3 +258,17 @@ h1 .st,h2 .st{vertical-align:middle;font-size:11px}
 .blrow .blreason{font-size:14px;color:var(--ink2);margin:0 0 6px}
 .blrow .blmeta{display:flex;flex-wrap:wrap;gap:4px 14px;font:600 12px/1.6 var(--mono);color:var(--muted)}
 .blrow .blmeta .owe{color:var(--red);font-weight:800}
+
+/* 成交记录 / 接单动态 */
+.rec{display:grid;grid-template-columns:auto 1fr auto;gap:6px 12px;align-items:center;background:var(--paper);border:2px solid var(--line);border-radius:12px;padding:10px 14px;margin:0 0 10px;box-shadow:var(--shadow-sm)}
+.rec .rec-t{font-weight:700;line-height:1.45}
+.rec .rec-s{font:600 12px/1.6 var(--mono);color:var(--muted)}
+.rec .rec-r{font:700 16px/1 var(--display);letter-spacing:-.03em;white-space:nowrap}
+@media (max-width:480px){.rec{grid-template-columns:1fr auto}.rec .rec-l{grid-column:1/3;order:2;display:flex;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed var(--line2)}.rec .rec-m{grid-column:1;order:1}.rec .rec-r{grid-column:2;order:1}}
+.pubs{display:flex;flex-direction:column;gap:6px}
+.pub{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed var(--line2);font-size:14px}
+.pub:last-child{border-bottom:0}
+.pub .who{font-weight:700}
+.pub .tiny{margin-left:auto}
+.ticker:hover{text-decoration:none;filter:brightness(1.05)}
+a.ticker{color:var(--bg)}

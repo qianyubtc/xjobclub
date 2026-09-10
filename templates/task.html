@@ -42,7 +42,12 @@
   {{range .Subs}}<tr><td><a href="{{.Path}}"><code>{{.Code}}</code></a></td><td>{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</td><td><span class="st {{stClass .Status}}">{{subStatus .Status}}</span>{{if .SelfDeal}} <span class="st bad" title="同 IP 段或同付款账户">疑似自导自演</span>{{end}}</td><td class="small muted">{{if eq .Status "payable"}}付款剩 {{left .PayDeadlineAt}}{{else if eq .Status "overdue"}}逾期 {{ago .OverdueAt}}{{else}}{{ago .UpdatedAt}}{{end}}</td></tr>{{end}}
   </table></div>{{else}}<p class="muted small">还没有人接单。</p>{{end}}
 </section>
-{{else}}
+{{end}}
+<section class="card">
+  <div class="sec-h"><h2>接单动态</h2><span class="eyebrow">{{len .Public}} 条</span></div>
+  {{if .Public}}<div class="pubs">{{range .Public}}<div class="pub"><span class="who"><a href="/u/{{.Worker}}">@{{.Worker}}</a></span><span class="st {{stClass .Status}}">{{pubStatus .Status}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<span class="muted tiny">{{ago .At}}</span></div>{{end}}</div>{{else}}<p class="muted small">还没有人接单，第一个来。</p>{{end}}
+</section>
+{{if not .IsOwner}}
 <section class="card">
   {{if .Mine}}<div class="notice">你在这个任务上有一条记录：<a href="{{.Mine.Path}}"><code>{{.Mine.Code}}</code></a> <span class="st {{stClass .Mine.Status}}">{{subStatus .Mine.Status}}</span></div>{{end}}
   {{if and .Me (not .Block)}}<form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单（锁定名额 {{durMin .T.ClaimTTLMin}}）</button></form>

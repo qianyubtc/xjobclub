@@ -7,5 +7,6 @@
   <div class="small muted">注册于 {{fdate .U.CreatedAt}}{{if .XCreated}} · X 账号约创建于 {{fdate .XCreated}}{{end}}{{if .Stats.Frozen}} · <b style="color:var(--bad)">冻结中（有逾期未付）</b>{{end}}</div>
 </section>
 {{if .BL}}<section class="card"><h2 style="margin-top:0">黑名单记录</h2>{{range .BL}}<div class="msg"><span class="st {{if .LiftedAt}}muted{{else}}bad{{end}}">{{if .LiftedAt}}已解除{{else}}在榜{{end}}</span> {{.Reason}} · {{fdate .CreatedAt}}{{if .AmountOwedE8}} · 欠款 {{amt .AmountOwedE8}} U{{if .RepaidAt}}（已补付）{{end}}{{end}}{{if .DisputeCode}} · <code>{{.DisputeCode}}</code>{{end}}</div>{{end}}</section>{{end}}
+{{if .Done}}<section class="card"><div class="sec-h"><h2>最近完成的单</h2><span class="eyebrow">{{len .Done}} 条</span></div><div class="pubs">{{range .Done}}<div class="pub"><a href="/t/{{.TaskCode}}">{{.TaskTitle}}</a><span class="amt">{{amt .RewardE8}} U</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<span class="muted tiny">{{ago .ConfirmedAt}}</span></div>{{end}}</div></section>{{end}}
 {{if .Tasks}}<section class="card"><h2 style="margin-top:0">在线任务</h2>{{range .Tasks}}<div><a href="{{.Path}}">{{.Title}}</a> · <span class="amt">{{amt .RewardE8}} U</span> · 剩 {{.Left}}</div>{{end}}</section>{{end}}
 {{end}}

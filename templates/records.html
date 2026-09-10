@@ -1,0 +1,21 @@
+{{define "title"}}成交记录 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<div class="sec-h"><h1 style="margin:0">成交记录</h1><span class="eyebrow">公开 · 不含付款细节</span></div>
+<p class="muted small" style="margin:-4px 0 12px">谁接了单、谁完成了、谁逾期了，都在这里。已完成 = 接单方已确认收到报酬或网关自动核销。</p>
+<div class="tabs">
+  <a href="/records" {{if eq .Tab ""}}class="on"{{end}}>全部（{{index .Counts ""}}）</a>
+  <a href="/records?tab=done" {{if eq .Tab "done"}}class="on"{{end}}>已完成（{{index .Counts "done"}}）</a>
+  <a href="/records?tab=active" {{if eq .Tab "active"}}class="on"{{end}}>进行中（{{index .Counts "active"}}）</a>
+  <a href="/records?tab=overdue" {{if eq .Tab "overdue"}}class="on"{{end}}>逾期与违约（{{index .Counts "overdue"}}）</a>
+</div>
+{{if .Rows}}{{range .Rows}}<div class="rec">
+  <div class="rec-l"><span class="st {{stClass .Status}}">{{pubStatus .Status}}</span></div>
+  <div class="rec-m">
+    <div class="rec-t"><a href="/u/{{.Worker}}">@{{.Worker}}</a> <span class="muted">接了</span> <a href="/u/{{.Owner}}">@{{.Owner}}</a> <span class="muted">的</span> <a href="/t/{{.TaskCode}}">{{.TaskTitle}}</a></div>
+    <div class="rec-s">{{if .TweetID}}<a href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a> · {{end}}<code>{{.Code}}</code> · {{ago .At}}</div>
+  </div>
+  <div class="rec-r amt">{{amt .RewardE8}} U</div>
+</div>{{end}}
+<div class="pager">{{if gt .Page 1}}<a href="/records?tab={{.Tab}}&page={{sub (i64 .Page) 1}}">上一页</a>{{end}}{{if gt .Pages 1}}<span>{{.Page}} / {{.Pages}}</span>{{end}}{{if lt .Page .Pages}}<a href="/records?tab={{.Tab}}&page={{add (i64 .Page) 1}}">下一页</a>{{end}}</div>
+{{else}}<div class="empty"><div class="big">还没有记录</div><p class="muted"><a href="/">去大厅接第一单</a></p></div>{{end}}
+{{end}}

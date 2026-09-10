@@ -1151,3 +1151,38 @@ func TestPayVerifyKey(t *testing.T) {
 		t.Fatal("pay settings should show verify button and UID warning")
 	}
 }
+
+// ---- 公开成交记录 ----
+
+func TestPublicRecords(t *testing.T) {
+	e := newEnv(t, "")
+	alice, ola := e.browser("alice"), e.browser("ola")
+	alice.register("alice", "9971")
+	ola.register("ola", "9972")
+	alice.setUID("86001")
+	alice.certify("payer-A971")
+	ola.bindKey("86002")
+	task := alice.publish(taskForm(url.Values{"slots": {"2"}}))
+	x := ola.claim(task)
+	e.synd.add(mockTweet{ID: "97101", Text: task.Contents[0], UserID: "9972", Handle: "ola"})
+	x = ola.submitTweet(x, "97101")
+	alice.post("/s/"+x.Code+"/pay/order", nil)
+	p, _ := e.a.st.ActivePayment(x.ID, "gateway")
+	e.gw.pay(t, p.MerchantOrderID, "payer-A97", "")
+	anon := e.browser("anon")
+	for _, path := range []string{"/records", "/records?tab=done", "/records?tab=active", "/records?tab=overdue"} {
+		resp, body := anon.get(path)
+		if resp.StatusCode != 200 || strings.Contains(body, "页面渲染失败") {
+			t.Fatalf("%s: %d", path, resp.StatusCode)
+		}
+	}
+	if _, body := anon.get("/records?tab=done"); !strings.Contains(body, "@ola") || !strings.Contains(body, "status/97101") || strings.Contains(body, "86002") {
+		t.Fatal("done tab should list worker and tweet, never UID")
+	}
+	if _, body := anon.get(task.Path()); !strings.Contains(body, "接单动态") || !strings.Contains(body, "@ola") {
+		t.Fatal("task page should show public activity")
+	}
+	if _, body := anon.get("/u/ola"); !strings.Contains(body, "最近完成的单") {
+		t.Fatal("profile should list completions")
+	}
+}

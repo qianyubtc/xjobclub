@@ -13,8 +13,8 @@
     <ul><li>累计完成 {{.Counts.Paid}} 单</li><li>已支付 {{amt .PaidSum}} U</li><li>{{.Counts.Users}} 位用户</li></ul>
   </div>
 </div>
-<div class="ticker" aria-hidden="true"><div class="rail">{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}</div></div>
-<div class="sec-h"><h2>接单大厅</h2><span class="eyebrow">{{.Total}} 单在线</span></div>
+<a class="ticker" href="/records" aria-label="成交记录"><div class="rail">{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}</div></a>
+<div class="sec-h"><h2>接单大厅</h2><span class="eyebrow">{{.Total}} 单在线</span><a class="small" href="/records" style="margin-left:auto">成交记录 →</a></div>
 <form class="filters" method="get" action="/">
   <div><label>单价 ≥</label><input name="min" value="{{.MinU}}" inputmode="decimal" placeholder="U"></div>
   <div><label>留存 ≤</label><select name="ret"><option value="">不限</option><option value="0" {{if eq .Retent "0"}}selected{{end}}>无留存</option><option value="24" {{if eq .Retent "24"}}selected{{end}}>1 天</option><option value="72" {{if eq .Retent "72"}}selected{{end}}>3 天</option></select></div>

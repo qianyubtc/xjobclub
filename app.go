@@ -64,7 +64,7 @@ type Base struct {
 	CSSVer    string
 }
 
-var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee"}
+var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records"}
 
 func newApp(cfg *Config) (*App, error) {
 	st, err := openStore(cfg.DBPath)
@@ -143,6 +143,23 @@ func (a *App) funcs() template.FuncMap {
 			return m
 		},
 		"stClass": stClass,
+		"pubStatus": func(s string) string {
+			switch s {
+			case SClaimed, SSubmit:
+				return "进行中"
+			case SVerified:
+				return "已发帖·留存中"
+			case SPayable, SAwait, SDisputed:
+				return "待付款"
+			case SPaid:
+				return "已完成"
+			case SOverdue:
+				return "发布方逾期"
+			case SDefault:
+				return "发布方违约"
+			}
+			return subStatus(s)
+		},
 		"taskStatus": func(s string) string {
 			return map[string]string{"open": "接单中", "paused": "已暂停", "closed": "已关闭"}[s]
 		},
@@ -237,6 +254,7 @@ func (a *App) routes() {
 	})
 	m.HandleFunc("GET /{$}", a.handleIndex)
 	m.HandleFunc("GET /rules", a.handleRules)
+	m.HandleFunc("GET /records", a.handleRecords)
 	// 账号
 	m.HandleFunc("GET /register", a.handleRegisterGet)
 	m.HandleFunc("POST /register/verify", a.handleRegisterVerify)

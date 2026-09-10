@@ -409,6 +409,7 @@ type taskPage struct {
 	Full       bool
 	Done       bool
 	CanEdit    bool
+	Public     []PublicRecord
 }
 
 func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +428,7 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 	p.OwnerTier = a.pubTier(p.OwnerStats)
 	p.Full = t.Left() <= 0
 	p.Done = t.SlotsTotal <= t.DoneCount
+	p.Public, _ = a.st.TaskPublicRecords(t.ID)
 	if p.Me != nil {
 		p.IsOwner = p.Me.ID == t.OwnerID || p.IsAdmin
 		if subs, _ := a.st.querySubs(`WHERE task_id=? AND worker_id=? ORDER BY id DESC LIMIT 1`, t.ID, p.Me.ID); len(subs) > 0 {

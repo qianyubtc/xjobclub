@@ -371,3 +371,97 @@ func (s *Store) SelfDealing(ownerID, workerID int64) bool {
 	}
 	return s.SharedIP(ownerID, workerID)
 }
+
+// PublicRecord 公开成交记录（不含任何付款细节）。
+type PublicRecord struct {
+	Code        string
+	Status      string
+	TaskCode    string
+	TaskTitle   string
+	RewardE8    int64
+	Worker      string
+	WorkerXID   string
+	Owner       string
+	OwnerXID    string
+	TweetID     string
+	At          int64 // 最近一次状态变化
+	ConfirmedAt int64
+}
+
+var publicStatuses = map[string][]string{
+	"":        {SClaimed, SSubmit, SVerified, SPayable, SAwait, SOverdue, SDisputed, SPaid, SDefault},
+	"done":    {SPaid},
+	"active":  {SClaimed, SSubmit, SVerified, SPayable, SAwait, SDisputed},
+	"overdue": {SOverdue, SDefault},
+}
+
+// PublicRecords 公开成交记录列表；tab 为 "" / done / active / overdue。
+func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, int64, error) {
+	sts, ok := publicStatuses[tab]
+	if !ok {
+		sts = publicStatuses[""]
+	}
+	args := []any{}
+	for _, st := range sts {
+		args = append(args, st)
+	}
+	where := `WHERE x.status IN (` + placeholders(len(sts)) + `)`
+	total := s.count(`SELECT COUNT(*) FROM submissions x `+where, args...)
+	q := `SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id ` + where +
+		fmt.Sprintf(` ORDER BY x.updated_at DESC LIMIT %d OFFSET %d`, limit, offset)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []PublicRecord
+	for rows.Next() {
+		var r PublicRecord
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, r)
+	}
+	return out, total, rows.Err()
+}
+
+// TaskPublicRecords 某任务的公开接单动态（不含过期/作废）。
+func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
+		WHERE x.task_id=? AND x.status NOT IN ('expired','void') ORDER BY x.id DESC LIMIT 100`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicRecord
+	for rows.Next() {
+		var r PublicRecord
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UserDoneRecords 某用户作为接单方最近完成的单。
+func (s *Store) UserDoneRecords(userID int64, limit int) ([]PublicRecord, error) {
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
+		WHERE x.worker_id=? AND x.status='paid' ORDER BY x.confirmed_at DESC LIMIT ?`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicRecord
+	for rows.Next() {
+		var r PublicRecord
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
