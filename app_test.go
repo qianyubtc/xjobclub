@@ -1707,12 +1707,15 @@ func TestPublishReviewFlow(t *testing.T) {
 		t.Fatalf("editing a live task must send it back to review: %s", task.Status)
 	}
 
-	// 5) 管理员发布免审
+	// 5) 管理员发布也要过审（默认谁都不免），发布方在审核页能看到自己的任务和进度
 	admin.setUID("90009")
 	admin.certify("payer-A8")
 	ta := admin.publish(taskForm(url.Values{"title": {"管理员任务"}}))
-	if ta.Status != "open" || ta.ReviewResult != "skipped" {
-		t.Fatalf("admin should skip review: %s %s", ta.Status, ta.ReviewResult)
+	if ta.Status != TReview {
+		t.Fatalf("admin task must go through review too: %s %s", ta.Status, ta.ReviewResult)
+	}
+	if _, body := admin.get("/review"); !strings.Contains(body, "你发布的") || !strings.Contains(body, "管理员任务") {
+		t.Fatal("owner should see own task in the review hall")
 	}
 	// 页面不泄漏原始值
 	for _, pth := range []string{"/review", "/admin", task.Path(), t2.Path(), "/me?tab=tasks", "/"} {
@@ -1891,5 +1894,110 @@ func TestCancelOpenTasksKeepsClaims(t *testing.T) {
 	// H5 底栏有审核入口
 	if _, body := bob.get("/"); !strings.Contains(body, `href="/review"`) {
 		t.Fatal("tabbar should link to /review")
+	}
+}
+
+// ---- 提前付款：发布方不等留存到期主动结算 ----
+
+func TestEarlyPay(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob, carl, dan := e.browser("alice"), e.browser("bob"), e.browser("carl"), e.browser("dan")
+	au := alice.register("alice", "7101")
+	bu := bob.register("bob", "7102")
+	carl.register("carl", "7103")
+	dan.register("dan", "7104")
+	alice.setUID("41001")
+	alice.certify("payer-EP")
+	bob.setUID("41002")
+	carl.setUID("41003")
+	dan.setUID("41004")
+	task := alice.publish(taskForm(url.Values{"retention": {"24"}, "slots": {"3"}}))
+	x := bob.claim(task)
+	e.synd.add(mockTweet{ID: "7201", Text: task.Contents[0], UserID: "7102", Handle: "bob"})
+	x = bob.submitTweet(x, "7201")
+	if x.Status != SVerified {
+		t.Fatalf("verified expected: %s", x.Status)
+	}
+	// 入口：记录页「现在就付」、任务管理页的行内按钮；接单方无权触发
+	if _, body := alice.get(x.Path()); !strings.Contains(body, "现在就付") {
+		t.Fatal("owner should see the early-pay button")
+	}
+	if _, body := alice.get(task.Path()); !strings.Contains(body, "/paynow") {
+		t.Fatal("task manage should offer early pay for verified rows")
+	}
+	if resp, _ := bob.post("/s/"+x.Code+"/paynow", nil); resp.StatusCode != 403 {
+		t.Fatalf("worker must not trigger early pay: %d", resp.StatusCode)
+	}
+	// 提前付款：立刻复检通过 → 待付款，跳到付款面板；接单方收到通知，发布方自己不收「待付款」通知；全站横幅出现
+	resp, _ := alice.post("/s/"+x.Code+"/paynow", nil)
+	if resp.StatusCode != 302 || !strings.HasSuffix(resp.Header.Get("Location"), "#pay") {
+		t.Fatalf("early pay should redirect to the pay panel: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SPayable || x.PayDeadlineAt <= ms() || !strings.Contains(x.RecheckFlag, "提前") {
+		t.Fatalf("payable expected: %s %d %q", x.Status, x.PayDeadlineAt, x.RecheckFlag)
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%提前付款%'`, bu.ID); n != 1 {
+		t.Fatalf("worker should be told about early pay, got %d", n)
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%有一条记录待付款%'`, au.ID); n != 0 {
+		t.Fatal("owner triggered it, no payable notification needed")
+	}
+	if _, body := alice.get(x.Path()); !strings.Contains(body, "去付款") || !strings.Contains(body, `id="pay"`) {
+		t.Fatal("record page should lead the owner to the pay panel")
+	}
+	if _, body := alice.get("/"); !strings.Contains(body, `class="paybar"`) {
+		t.Fatal("pay banner expected on other pages")
+	}
+	if _, body := alice.get("/me"); strings.Contains(body, `class="paybar"`) {
+		t.Fatal("no banner on /me itself")
+	}
+	if _, body := bob.get("/"); strings.Contains(body, `class="paybar"`) {
+		t.Fatal("banner is for publishers only")
+	}
+	// 改过文的推文：提前付款时复检不达标 → 作废，无需付款
+	x2 := carl.claim(task)
+	e.synd.add(mockTweet{ID: "7202", Text: task.Contents[0], UserID: "7103", Handle: "carl"})
+	x2 = carl.submitTweet(x2, "7202")
+	e.synd.add(mockTweet{ID: "7202", Text: "改掉了", UserID: "7103", Handle: "carl"})
+	if resp, _ := alice.post("/s/"+x2.Code+"/paynow", nil); resp.StatusCode != 302 {
+		t.Fatalf("altered tweet: %d", resp.StatusCode)
+	}
+	if x2, _ = e.a.st.GetSubByID(x2.ID); x2.Status != SVoid {
+		t.Fatalf("altered tweet must void: %s", x2.Status)
+	}
+	// 读不到推文：什么都不改（状态、复检计划、未读计数都不动），只提示稍后再试
+	x3 := dan.claim(task)
+	e.synd.add(mockTweet{ID: "7203", Text: task.Contents[0], UserID: "7104", Handle: "dan"})
+	x3 = dan.submitTweet(x3, "7203")
+	e.synd.del("7203")
+	if resp, body := alice.post("/s/"+x3.Code+"/paynow", nil); resp.StatusCode != 400 || !strings.Contains(body, "读不到") {
+		t.Fatalf("unreadable tweet should just explain: %d %s", resp.StatusCode, snippet(body))
+	}
+	if nx, _ := e.a.st.GetSubByID(x3.ID); nx.Status != SVerified || nx.Unreadable != 0 || nx.RecheckDueAt != x3.RecheckDueAt {
+		t.Fatalf("unreadable early pay must not change anything: %s %d", nx.Status, nx.Unreadable)
+	}
+	// 按浏览量计价：读不到浏览量时不结算；读到后按此刻浏览量结算
+	ct := alice.publish(taskForm(url.Values{"price_mode": {"cpm"}, "cpm": {"1"}, "floor_amt": {"0.2"}, "cap_amt": {"3"}, "retention": {"24"}, "slots": {"2"}}))
+	x4 := bob.claim(ct)
+	e.synd.add(mockTweet{ID: "7301", Text: ct.Contents[0], UserID: "7102", Handle: "bob"})
+	x4 = bob.submitTweet(x4, "7301")
+	if x4.Status != SVerified {
+		t.Fatalf("cpm verified expected: %s", x4.Status)
+	}
+	if resp, body := alice.post("/s/"+x4.Code+"/paynow", nil); resp.StatusCode != 400 || !strings.Contains(body, "浏览量") {
+		t.Fatalf("cpm without views should wait: %d %s", resp.StatusCode, snippet(body))
+	}
+	e.prof.setViews("7301", 1500)
+	if resp, _ := alice.post("/s/"+x4.Code+"/paynow", nil); resp.StatusCode != 302 {
+		t.Fatalf("cpm early pay: %d", resp.StatusCode)
+	}
+	if x4, _ = e.a.st.GetSubByID(x4.ID); x4.Status != SPayable || x4.SettleViews != 1500 || x4.AmountE8 != 150000000 {
+		t.Fatalf("cpm early settle: %s views=%d amount=%d", x4.Status, x4.SettleViews, x4.AmountE8)
+	}
+	for _, pth := range []string{x.Path(), x3.Path(), x4.Path(), task.Path(), "/review", "/me", "/"} {
+		if _, body := alice.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+			t.Fatalf("raw value leaked on %s", pth)
+		}
 	}
 }

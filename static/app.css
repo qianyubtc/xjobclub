@@ -379,3 +379,8 @@ details.fold summary{font-size:14px}
 .btn.busy,button.busy{opacity:1;position:relative;color:transparent!important;pointer-events:none}
 .btn.busy::after,button.busy::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border:2px solid var(--muted);border-top-color:var(--ink);border-radius:50%;animation:sp .8s linear infinite}
 .btn.busy .ic,button.busy .ic{visibility:hidden}
+/* 全站待付款横幅：发布方有待付/逾期记录时每页都提醒（/me 除外） */
+.paybar{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:12px 14px;border:2px solid var(--ink);border-radius:12px;background:var(--orange-soft);color:var(--ink);text-decoration:none;box-shadow:4px 4px 0 var(--ink);font-size:14px}
+.paybar b{font-weight:800}.paybar span{margin-left:auto;font-size:13px;opacity:.85;white-space:nowrap}
+.paybar:hover{text-decoration:none;transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--ink)}
+@media (max-width:640px){.paybar{flex-wrap:wrap}.paybar span{margin-left:auto}}

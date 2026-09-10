@@ -59,7 +59,7 @@ type Config struct {
 	ReviewEarlyPass   int64 // 提前通过的通过率（百分比）
 	ReviewEarlyFail   int64 // 提前否决的反对率（百分比）
 	ReviewHoldFails   int64 // 到期时反对票达到此数转管理员
-	ReviewTrustedPaid int64 // 网关核销付款达到此数且无逾期的发布方免审（0 = 不免）
+	ReviewTrustedPaid int64 // 网关核销付款达到此数且无逾期的发布方免审（0 = 谁都不免，默认；管理员也要过审）
 	ReviewVoterAgeH   int64 // 投票人注册时长
 	ReviewVoterXDays  int64 // 投票人 X 账号最少年龄
 	ReviewVotesPerDay int64
@@ -270,7 +270,7 @@ func loadConfig(path string) (*Config, error) {
 	c.ReviewEarlyPass = getInt("REVIEW_EARLY_PASS", 80)
 	c.ReviewEarlyFail = getInt("REVIEW_EARLY_FAIL", 60)
 	c.ReviewHoldFails = getInt("REVIEW_HOLD_FAILS", 2)
-	c.ReviewTrustedPaid = getInt("REVIEW_TRUSTED_PAID", 3)
+	c.ReviewTrustedPaid = getInt("REVIEW_TRUSTED_PAID", 0)
 	c.ReviewVoterAgeH = getInt("REVIEW_VOTER_AGE_H", 24)
 	c.ReviewVoterXDays = getInt("REVIEW_VOTER_X_DAYS", 30)
 	c.ReviewVotesPerDay = getInt("REVIEW_VOTES_PER_DAY", 30)

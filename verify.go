@@ -163,32 +163,56 @@ func (a *App) verifySubmission(x *Submission) {
 	}
 	if recheck > 0 {
 		a.notify(w.ID, "verify", "验证通过", fmt.Sprintf("推文需保留 %s，复检通过后进入待付款。", dur(t.RetentionH)), x.Path())
-		a.notify(t.OwnerID, "task", "@"+w.Handle+" 已"+t.DoneVerb()+"并通过验证", fmt.Sprintf("《%s》：推文进入 %s 留存期，%s 复检通过后需要你付款%s。", t.Title, dur(t.RetentionH), fmtTime(recheck), payDesc(t)), x.Path())
+		a.notify(t.OwnerID, "task", "@"+w.Handle+" 已"+t.DoneVerb()+"并通过验证", fmt.Sprintf("《%s》：推文进入 %s 留存期，%s 复检通过后需要你付款%s。等不及可以在记录页点「现在就付」提前结算（放弃留存保护）。", t.Title, dur(t.RetentionH), fmtTime(recheck), payDesc(t)), x.Path())
 	} else {
 		a.notify(w.ID, "verify", "验证通过，等待付款", fmt.Sprintf("发布方须在 %s 内付款。", dur(t.PayWindowH)), x.Path())
 		a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已完成任务 %s，请在 %s 内付款 %s U。", w.Handle, t.Code, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 	}
 }
 
-// recheckSubmission 留存复检：重新跑全部检查。
-func (a *App) recheckSubmission(x *Submission) {
+// recheckSubmission 留存复检：重新跑全部检查。early = 发布方提前付款（不等留存到期）：
+// 只接受"通过 → 待付款"和"不达标 → 作废"两种确定性结论，读不到就原样返回提示、不改复检计划。
+// 返回值是给发布方看的提示，定时任务忽略。
+func (a *App) recheckSubmission(x *Submission, early bool) string {
 	t, err := a.st.GetTaskByID(x.TaskID)
 	if err != nil || t == nil {
-		return
+		return "任务不存在"
 	}
 	w, err := a.st.GetUserByID(x.WorkerID)
 	if err != nil || w == nil {
-		return
+		return "接单方不存在"
 	}
 	deadline := ms() + t.PayWindowH*hourMs
-	pass := func(flag string) {
+	actor := int64(0)
+	if early {
+		actor = t.OwnerID
+	}
+	notifyPayable := func(amount, views int64) {
+		vs := ""
+		if views >= 0 {
+			vs = fmt.Sprintf("结算浏览量 %d，", views)
+		}
+		if early {
+			a.notify(w.ID, "verify", "发布方提前付款，不用等留存到期了", fmt.Sprintf("%s报酬 %s U，发布方须在 %s 内付款。", vs, fmtE8(amount), dur(t.PayWindowH)), x.Path())
+			return
+		}
+		a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 的推文留存复检通过，%s请在 %s 内付款 %s U。", w.Handle, vs, dur(t.PayWindowH), fmtE8(amount)), x.Path())
+		a.notify(w.ID, "verify", "留存复检通过", fmt.Sprintf("%s报酬 %s U，发布方须在 %s 内付款。", vs, fmtE8(amount), dur(t.PayWindowH)), x.Path())
+	}
+	pass := func(flag string) string {
+		if early {
+			flag = strings.TrimSpace("发布方提前付款（未等留存到期） " + flag)
+		}
 		if t.CPM() {
 			// 按浏览量计价：此刻读一次浏览量结算；读不到先重试，超过 24 小时按已记录的最大值算
 			v, verr := a.fetchViews(x.TweetID)
 			if verr != nil {
+				if early {
+					return "浏览量暂时读不到，现在无法结算，稍后再试"
+				}
 				if ms()-(x.VerifiedAt+t.RetentionH*hourMs) < dayMs { // 以原始留存到期时间算，重试会改写 recheck_due_at
 					a.st.SetRecheckRetry(x.ID, ms()+hourMs, "浏览量暂时读不到，1 小时后重试")
-					return
+					return ""
 				}
 				v = x.Views
 				flag = strings.TrimSpace(flag + " 浏览量读取失败，按已记录值结算")
@@ -200,35 +224,39 @@ func (a *App) recheckSubmission(x *Submission) {
 			}
 			amount := cpmAmount(t, v)
 			if ok, _ := a.st.SetPayableAmount(x.ID, deadline, flag, amount, v); ok {
-				a.st.Audit(0, "sub.payable", "submission", x.ID, map[string]any{"flag": flag, "views": v, "amount": fmtE8(amount)}, "")
-				a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 的推文留存复检通过，结算浏览量 %d，报酬 %s U，请在 %s 内付款。", w.Handle, v, fmtE8(amount), dur(t.PayWindowH)), x.Path())
-				a.notify(w.ID, "verify", "留存复检通过", fmt.Sprintf("结算浏览量 %d，报酬 %s U。发布方须在 %s 内付款。", v, fmtE8(amount), dur(t.PayWindowH)), x.Path())
+				a.st.Audit(actor, "sub.payable", "submission", x.ID, map[string]any{"flag": flag, "views": v, "amount": fmtE8(amount)}, "")
+				notifyPayable(amount, v)
 			}
-			return
+			return ""
 		}
 		if ok, _ := a.st.SetPayable(x.ID, deadline, flag); ok {
-			a.st.Audit(0, "sub.payable", "submission", x.ID, map[string]any{"flag": flag}, "")
-			a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 的推文留存复检通过，请在 %s 内付款 %s U。", w.Handle, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
-			a.notify(w.ID, "verify", "留存复检通过", fmt.Sprintf("发布方须在 %s 内付款。", dur(t.PayWindowH)), x.Path())
+			a.st.Audit(actor, "sub.payable", "submission", x.ID, map[string]any{"flag": flag}, "")
+			notifyPayable(t.RewardE8, -1)
 		}
+		return ""
 	}
 	tw, ferr := a.fetchTweet(x.TweetID, "recheck")
 	if ferr != nil && isRetryable(ferr) {
+		if early {
+			return "X 接口暂时不可用，稍后再试"
+		}
 		if (x.RecheckTries+1)*30 >= a.cfg.RecheckUnknownH*60 {
-			pass("复检未确认：X 接口持续不可用，按通过处理")
-			return
+			return pass("复检未确认：X 接口持续不可用，按通过处理")
 		}
 		a.st.SetRecheckRetry(x.ID, ms()+30*60*1000, "复检暂时无法读取推文，稍后重试")
-		return
+		return ""
 	}
 	forced := strings.HasPrefix(x.RecheckFlag, "forced")
 	reason := ""
 	if ferr != nil {
+		if early {
+			return "现在读不到这条推文（可能已删除或账号受保护），暂不能提前付款；系统会继续按留存期复检"
+		}
 		// 读不到（已删 / 受保护 / 临时锁号）不是确定性结论：间隔 ≥1 小时连续 3 次才作废
 		n := x.Unreadable + 1
 		if n < 3 {
 			a.st.db.Exec(`UPDATE submissions SET unreadable=?, recheck_due_at=?, recheck_flag=?, updated_at=? WHERE id=? AND status='verified'`, n, ms()+hourMs, fmt.Sprintf("复检读不到推文（第 %d/3 次），1 小时后再确认", n), ms(), x.ID)
-			return
+			return ""
 		}
 		reason = ferr.Error() + "（连续 3 次读不到）"
 	} else if forced {
@@ -242,11 +270,9 @@ func (a *App) recheckSubmission(x *Submission) {
 	}
 	if reason == "" {
 		if forced {
-			pass("forced：管理员强制通过，复检仅核对可读性与作者")
-		} else {
-			pass("")
+			return pass("forced：管理员强制通过，复检仅核对可读性与作者")
 		}
-		return
+		return pass("")
 	}
 	if ok, _ := a.st.SetVoid(x.ID, []string{SVerified}, "留存不达标："+reason); ok {
 		a.st.Audit(0, "sub.void", "submission", x.ID, map[string]any{"reason": reason}, "")
@@ -258,6 +284,7 @@ func (a *App) recheckSubmission(x *Submission) {
 			a.notify(w.ID, "account", fmt.Sprintf("30 天内 %d 次留存不达标，暂停接单 %d 天", a.cfg.VoidStrikes, a.cfg.VoidSuspendDays), "", "/me")
 		}
 	}
+	return ""
 }
 
 // truncate 截断展示用。

@@ -59,6 +59,7 @@ type Base struct {
 	Unread    int64
 	Todo      int64 // 待办数（待付款 + 待确认 + 陪审邀请）
 	ReviewN   int64 // 等我审核的任务数
+	PayDueN   int64 // 我作为发布方待付款 / 逾期的记录数（全站横幅）
 	Path      string
 	Flash     string
 	NoIndex   bool
@@ -307,6 +308,7 @@ func (a *App) routes() {
 	m.HandleFunc("POST /s/{code}/submit", a.handleSubmit)
 	m.HandleFunc("POST /s/{code}/done", a.handleDone)
 	m.HandleFunc("POST /s/{code}/check", a.handleCheck)
+	m.HandleFunc("POST /s/{code}/paynow", a.handlePayNow)
 	m.HandleFunc("POST /s/{code}/pay/order", a.handlePayOrder)
 	m.HandleFunc("POST /s/{code}/pay/mark", a.handlePayMark)
 	m.HandleFunc("POST /s/{code}/pay/claim", a.handlePayClaim)
@@ -391,6 +393,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		b.IsAdmin = a.isAdmin(b.Me)
 		b.Unread = a.st.UnreadCount(b.Me.ID)
 		b.Todo = a.todoCount(b.Me)
+		b.PayDueN = a.st.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status IN ('payable','overdue')`, b.Me.ID)
 		if a.cfg.ReviewEnabled {
 			b.ReviewN = a.st.ReviewPendingFor(b.Me.ID)
 		}
@@ -633,7 +636,7 @@ func ownerNext(x *Submission) string {
 	case SChecking:
 		return "请到 X 核对后确认（" + left(x.CheckingAt+checkWindowMs) + " 内不处理视为通过）"
 	case SVerified:
-		return "已发帖，留存至 " + fmtTime(x.RecheckDueAt) + " 复检"
+		return "已发帖，留存至 " + fmtTime(x.RecheckDueAt) + " 复检；等不及可提前付款"
 	case SPayable:
 		return "请付款，剩 " + left(x.PayDeadlineAt)
 	case SOverdue:

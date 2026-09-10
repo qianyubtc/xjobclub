@@ -33,6 +33,7 @@ type subPage struct {
 	CanSubmit    bool
 	CanPay       bool
 	CanMark      bool
+	CanPayNow    bool // 发布方可提前付款（留存期内、无申诉）
 	CanConfirm   bool
 	CanDone      bool     // 点赞/转发：接单方可提交核对
 	CanCheck     bool     // 发布方可核对
@@ -174,6 +175,7 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	noOpenD := p.Dispute == nil || p.Dispute.Type != "D"
 	p.CanMark = p.IsOwner && noOpenD && (x.Status == SPayable || x.Status == SOverdue || disputedOverdue || (p.TopupE8 > 0 && x.TopupMarkedAt == 0))
 	p.CanConfirm = p.IsWorker && x.Status == SAwait
+	p.CanPayNow = p.IsOwner && x.Status == SVerified && p.Dispute == nil
 	if p.TopupE8 > 0 {
 		p.Amount = fmtE8(p.TopupE8)
 	} else {
@@ -339,6 +341,49 @@ func (a *App) handleDone(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCheck 发布方核对点赞/转发：ok 进入待付款；no 退回重做（第二次未见即作废并释放名额）。
+// handlePayNow 发布方提前付款：不等留存到期，立刻复检一次，通过即进入待付款。
+// 放弃留存保护是发布方自己的选择；读不到推文时什么都不改，只提示稍后再试。
+func (a *App) handlePayNow(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != t.OwnerID {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if a.limited(w, r, "paynow", 20, 10*time.Minute) {
+		return
+	}
+	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if x.Status != SVerified {
+		bad("只有留存期内（已验证）的记录可以提前付款")
+		return
+	}
+	if d, _ := a.st.OpenDisputeForSub(x.ID); d != nil {
+		bad("有申诉进行中，先等裁决")
+		return
+	}
+	msg := a.recheckSubmission(x, true)
+	if nx, _ := a.st.GetSubByCode(x.Code); nx != nil {
+		x = nx
+	}
+	switch x.Status {
+	case SPayable:
+		a.st.Audit(u.ID, "sub.paynow", "submission", x.ID, nil, a.ip(r))
+		a.flash(w, "已进入待付款，按下面的金额付款即可")
+		http.Redirect(w, r, x.Path()+"#pay", http.StatusFound)
+	case SVoid:
+		a.flash(w, "复检发现推文已不符合要求，记录作废，无需付款")
+		http.Redirect(w, r, x.Path(), http.StatusFound)
+	default:
+		if msg == "" {
+			msg = "暂时无法结算，请稍后再试"
+		}
+		bad(msg)
+	}
+}
+
 func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 	x, t, u, ok := a.loadSub(w, r)
 	if !ok {

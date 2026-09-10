@@ -31,11 +31,9 @@ type ReviewInfo struct {
 
 var voteReasons = []string{"诈骗 / 钓鱼 / 引流付费", "违法违规内容", "报酬明显不合理", "发布方可疑", "文案有问题", "其它"}
 
-// reviewSkip 免审：管理员，或网关核销付款够多且无逾期、无违约的发布方。
-func (a *App) reviewSkip(u *User, st PubStats) bool {
-	if a.isAdmin(u) {
-		return true
-	}
+// reviewSkip 免审：默认没有——所有新任务都走审核，管理员也不例外；
+// 只有配置 REVIEW_TRUSTED_PAID>0 时，网关核销付款够多且无逾期、无违约的发布方才免审。
+func (a *App) reviewSkip(_ *User, st PubStats) bool {
 	return a.cfg.ReviewTrustedPaid > 0 && st.PaidGateway >= a.cfg.ReviewTrustedPaid && st.Overdue == 0 && st.Defaulted == 0
 }
 
@@ -159,6 +157,7 @@ type reviewPage struct {
 	Base
 	Tasks    []*Task
 	Voted    []*Task // 我投过、仍在审核中的
+	Mine     []*Task // 我发布的、仍在审核中的（看进度，不能投）
 	Owners   map[int64]*User
 	Stats    map[int64]PubStats
 	Infos    map[int64]*ReviewInfo
@@ -189,6 +188,10 @@ func (a *App) handleReview(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Voted, _ = a.st.ReviewVotedFor(u.ID)
 	for _, t := range p.Voted {
+		p.Infos[t.ID] = a.reviewInfo(t, u)
+	}
+	p.Mine, _ = a.st.ReviewOwnTasks(u.ID)
+	for _, t := range p.Mine {
 		p.Infos[t.ID] = a.reviewInfo(t, u)
 	}
 	p.MyVotes = a.st.VotesSince(u.ID, 0)

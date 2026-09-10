@@ -102,7 +102,7 @@ func (a *App) retryVerifies(now int64) {
 func (a *App) runRechecks(now int64) {
 	subs, _ := a.st.DueRechecks(now)
 	for _, x := range subs {
-		a.recheckSubmission(x)
+		a.recheckSubmission(x, false)
 	}
 }
 

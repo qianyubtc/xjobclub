@@ -50,6 +50,7 @@
 </div></nav>
 <main class="wrap">
 {{if .Flash}}<div class="notice" id="flash">{{.Flash}}</div>{{end}}
+{{if and .PayDueN (ne .Path "/me")}}<a class="paybar" href="/me"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg><b>你有 {{.PayDueN}} 笔待付款</b><span>逾期会冻结账号 · 去付款 →</span></a>{{end}}
 {{template "content" .}}
 </main>
 <nav class="tabbar" aria-label="底部导航">

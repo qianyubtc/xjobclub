@@ -12,11 +12,12 @@
     {{if eq .X.Status "claimed"}}<span class="k">提交截止</span><span class="v">{{ftime .X.ClaimExpiresAt}}（剩 {{left .X.ClaimExpiresAt}}）</span>{{end}}
     {{if eq .X.Status "checking"}}<span class="k">核对期限</span><span class="v">{{ftime .CheckDue}}（剩 {{left .CheckDue}}，发布方不处理视为通过）</span>{{end}}
     {{if eq .X.Status "verified"}}<span class="k">留存复检</span><span class="v">{{ftime .X.RecheckDueAt}}（剩 {{left .X.RecheckDueAt}}）{{if .X.RecheckFlag}} · {{.X.RecheckFlag}}{{end}}</span>{{end}}
-    {{if or (eq .X.Status "payable") (eq .X.Status "overdue")}}<span class="k">付款截止</span><span class="v">{{ftime .X.PayDeadlineAt}}（{{left .X.PayDeadlineAt}}）{{if .X.RecheckFlag}} · <span class="st warn">{{.X.RecheckFlag}}</span>{{end}}</span>{{end}}
+    {{if or (eq .X.Status "payable") (eq .X.Status "overdue")}}<span class="k">付款截止</span><span class="v">{{ftime .X.PayDeadlineAt}}（{{left .X.PayDeadlineAt}}）{{if .X.RecheckFlag}} · <span class="st {{if has .X.RecheckFlag "提前"}}good{{else}}warn{{end}}">{{.X.RecheckFlag}}</span>{{end}}</span>{{end}}
     {{if .X.MarkedPaidAt}}<span class="k">发布方标记</span><span class="v">{{ftime .X.MarkedPaidAt}}{{if .X.MarkedOrderID}} · 币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}{{if .X.MarkedNote}} · {{.X.MarkedNote}}{{end}}</span>{{end}}
     {{if .X.VoidReason}}<span class="k">作废原因</span><span class="v">{{.X.VoidReason}}</span>{{end}}
   </div>
   {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  {{if and .IsOwner (or .CanPay .CanMark)}}<div class="btns" style="margin-top:12px"><a class="btn" href="#pay">去付款 {{.Amount}} U ↓</a></div>{{end}}
   {{if and (eq .X.Status "claimed") .X.LastError}}<div class="notice bad">上次验证未通过：{{.X.LastError}}<br><span class="small">已用 {{.X.VerifyAttempts}}/{{.Cfg.VerifyAttempts}} 次提交机会</span></div>{{end}}
   {{if and (eq .X.Status "claimed") .X.CheckRejects}}<div class="notice bad">发布方核对后没有看到你的{{.T.DoneVerb}}{{if .X.CheckNote}}：{{.X.CheckNote}}{{end}}<br><span class="small">请确认是用{{with .Worker}} @{{.Handle}}{{end}} 完成的，再重新提交核对；已退回 {{.X.CheckRejects}} 次，第二次退回将作废。</span></div>{{end}}
   {{if and (eq .X.Status "submitted") .X.NextVerifyAt}}<div class="notice"><span class="spin"></span>{{.X.LastError}}（下次 {{ftime .X.NextVerifyAt}}）</div>{{end}}
@@ -132,7 +133,12 @@
   {{end}}
 </section>
 {{else if eq .X.Status "awaiting_confirm"}}<section class="card">{{if .X.TopupMarkedAt}}<p>补差已登记{{if .X.TopupOrderID}}（币安订单 <code>{{.X.TopupOrderID}}</code>）{{end}}，等待接单方确认后按全额完成。</p>{{else}}<p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。对方 24 小时内未处理会被锁定接单。</p>{{end}}</section>
-{{else if eq .X.Status "verified"}}<section class="card"><p>推文已验证，留存复检 {{ftime .X.RecheckDueAt}} 后进入待付款。</p></section>
+{{else if eq .X.Status "verified"}}<section class="card" id="paynow">
+  <h2 style="margin-top:0">下一步</h2>
+  <p>推文已验证，正在留存期：<b>{{ftime .X.RecheckDueAt}}</b> 复检通过后自动进入待付款并通知你，付款时限 {{dur .T.PayWindowH}}。</p>
+  {{if .CanPayNow}}<form method="post" action="/s/{{.X.Code}}/paynow" data-confirm="现在付款意味着放弃留存保护：付款后对方即使删帖，平台也无法追责。确定现在结算{{if .T.CPM}}（按当前浏览量）{{else}} {{.Amount}} U{{end}}？"><button class="btn">不等了，现在就付{{if not .T.CPM}} {{.Amount}} U{{end}}</button></form>
+  <div class="hint">会先立刻复检一次推文（还在、内容一致），通过即进入待付款；不达标则作废、无需付款。{{if .T.CPM}}按浏览量计价的任务以此刻读到的浏览量结算。{{end}}</div>{{end}}
+</section>
 {{end}}
 {{range .DisputeOK}}{{if eq . "D"}}<section class="card"><details class="fold"><summary>复检未确认，推文有问题？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="D"><label>说明（之后可上传截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn sec sm" style="margin-top:8px">申诉：推文不合格</button><div class="hint">申诉期间付款倒计时暂停；不成立则顺延。</div></form></details></section>{{end}}{{end}}
 {{end}}
