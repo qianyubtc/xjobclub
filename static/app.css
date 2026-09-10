@@ -47,7 +47,8 @@ nav.top .links a.on{color:var(--on-yellow);background:var(--yellow);border-color
 .num{font-variant-numeric:tabular-nums;font-family:var(--mono)}
 .big{font-size:30px;font-weight:700;line-height:1.1;font-family:var(--display);letter-spacing:-.04em;font-variant-numeric:tabular-nums}
 .amt{color:var(--blue-ink);font-weight:900}
-code,.code{font-family:var(--mono);font-size:.9em;background:var(--code);padding:2px 6px;border-radius:5px;word-break:break-all;border:1px solid var(--line2)}
+code,.code{display:inline-block;font-family:var(--mono);font-size:.9em;background:var(--code);padding:1px 6px;border-radius:5px;border:1px solid var(--line2);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;line-height:1.6}
+pre.code code{display:inline;white-space:pre;overflow:visible;border:0;padding:0;background:none}
 pre.tweet{white-space:pre-wrap;word-break:break-word;font:inherit;background:var(--paper);padding:14px 16px 14px 18px;border:2px solid var(--line);border-radius:12px;margin:6px 0;position:relative;box-shadow:var(--shadow-sm)}
 pre.tweet::before{content:"推文";position:absolute;top:-11px;left:12px;background:var(--yellow);color:var(--on-yellow);border:2px solid var(--line);border-radius:6px;font:700 11px/1 var(--mono);padding:3px 6px;letter-spacing:.1em}
 /* 按钮：贴纸 */
@@ -235,3 +236,20 @@ button.btn{font-family:inherit}
 .chip{font-size:10.5px}
 h1 .st,h2 .st{vertical-align:middle;font-size:11px}
 .brand-mark{display:inline-block;width:26px;height:26px;border-radius:7px;background:var(--yellow);border:2px solid var(--line);box-shadow:2px 2px 0 var(--line);color:var(--on-yellow);font:900 14px/22px var(--mono);text-align:center;margin-right:2px}
+
+/* 发布：单人/多人 */
+.seg{display:flex;gap:0;border:2px solid var(--line);border-radius:10px;overflow:hidden;background:var(--paper);margin:4px 0 6px}
+.seg label{flex:1;margin:0;padding:10px 12px;text-align:center;font-weight:800;color:var(--ink2);cursor:pointer;border-right:2px solid var(--line)}
+.seg label:last-child{border-right:0}
+.seg input{display:none}
+.seg label.on{background:var(--yellow);color:var(--on-yellow)}
+.seg label small{display:block;font:600 11px/1.3 var(--mono);color:inherit;opacity:.75;margin-top:2px}
+
+/* 黑名单榜条目 */
+.blrow{border:2px solid var(--line);border-radius:12px;background:var(--paper);padding:12px 14px;margin:0 0 10px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+.blrow::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--red)}
+.blrow .blhead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 4px}
+.blrow .who{font-weight:800;font-size:16px;color:var(--ink)}
+.blrow .blreason{font-size:14px;color:var(--ink2);margin:0 0 6px}
+.blrow .blmeta{display:flex;flex-wrap:wrap;gap:4px 14px;font:600 12px/1.6 var(--mono);color:var(--muted)}
+.blrow .blmeta .owe{color:var(--red);font-weight:800}

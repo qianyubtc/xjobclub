@@ -20,7 +20,10 @@
     {{if not .F.EditCode}}
     <div class="grid2">
       <div><label for="reward">单价（每条完成支付的 U）</label><input id="reward" name="reward" inputmode="decimal" value="{{.F.Reward}}" placeholder="例：2" required><div class="hint">{{amt .Cfg.MinRewardE8}}–{{amt .Cfg.MaxRewardE8}} U</div></div>
-      <div><label for="slots">名额</label><input id="slots" name="slots" inputmode="numeric" value="{{.F.Slots}}" required><div class="hint">单价 × 名额 不能超过可用敞口</div></div>
+      <div><label>任务类型</label>
+        <div class="seg" id="kindSeg"><label id="kindOne" {{if eq .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="one" {{if eq .F.Slots "1"}}checked{{end}}>单人任务<small>只需 1 个人发</small></label><label id="kindMany" {{if ne .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="many" {{if ne .F.Slots "1"}}checked{{end}}>多人任务<small>N 个人各发一条</small></label></div>
+        <div id="slotsWrap" {{if eq .F.Slots "1"}}hidden{{end}}><label for="slots" class="small">需要多少人（名额）</label><input id="slots" name="slots" inputmode="numeric" value="{{.F.Slots}}" required></div>
+        <div class="hint">每个人在同一个任务上只能完成一次；单价 × 名额不能超过可用敞口</div></div>
       <div><label for="claim_ttl">接单时限</label><select id="claim_ttl" name="claim_ttl">{{range $v := .TTLs}}<option value="{{$v}}" {{if eq (print $v) $.F.ClaimTTL}}selected{{end}}>{{durMin $v}}</option>{{end}}</select><div class="hint">接单后多久内必须回填链接</div></div>
       <div><label for="retention">留存时长</label><select id="retention" name="retention">{{range $v := .Cfg.RetentionOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.Retention}}selected{{end}}>{{if eq $v 0}}无（发完立刻可付，对方也可立刻删）{{else}}{{dur $v}}{{end}}</option>{{end}}</select></div>
       <div><label for="pay_window">付款时限</label><select id="pay_window" name="pay_window">{{range $v := .Cfg.PayWindowOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.PayWindow}}selected{{end}}>{{dur $v}}</option>{{end}}</select><div class="hint">越短越吸引接单方；逾期会被冻结</div></div>
@@ -41,6 +44,9 @@
   var ad=document.querySelector('input[name=ad_tag]');
   function upd(){document.querySelectorAll('textarea[name^=content]').forEach(function(t){var c=document.querySelector('.count[data-for='+t.id+']');if(!c)return;var v=t.value;if(ad&&ad.checked&&v.trim()&&!/#广告|#推广|#ad\b|#sponsored/i.test(v))v=v.trim()+' #广告';var n=v.trim()?wlen(v):0;c.textContent=n+' / 280';c.classList.toggle('over',n>280)})}
   document.addEventListener('input',upd);if(ad)ad.addEventListener('change',upd);upd();
+  var seg=document.getElementById('kindSeg'),slots=document.getElementById('slots'),wrap=document.getElementById('slotsWrap');
+  if(seg){var prev=slots.value==='1'?'5':slots.value;seg.addEventListener('change',function(e){var one=e.target.value==='one';document.getElementById('kindOne').classList.toggle('on',one);document.getElementById('kindMany').classList.toggle('on',!one);
+    if(one){prev=slots.value!=='1'?slots.value:prev;slots.value='1';wrap.hidden=true}else{slots.value=prev||'5';wrap.hidden=false;slots.focus()}})}
   var add=document.getElementById('addVar');if(add)add.addEventListener('click',function(){var h=document.querySelector('.variant[hidden]');if(h){h.hidden=false;h.querySelector('textarea').focus()}else{toast('变体数已达上限')}});
 })();
 </script>{{end}}
