@@ -249,12 +249,25 @@ type profMock struct {
 	mu        sync.Mutex
 	followers map[string]int64
 	retweets  map[string][]string // handle → 转发过的推文 ID
+	views     map[string]int64    // 推文 ID → 浏览量
 	srv       *httptest.Server
 }
 
 func newProf() *profMock {
-	m := &profMock{followers: map[string]int64{}, retweets: map[string][]string{}}
+	m := &profMock{followers: map[string]int64{}, retweets: map[string][]string{}, views: map[string]int64{}}
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/status/") {
+			id := strings.TrimPrefix(r.URL.Path, "/status/")
+			m.mu.Lock()
+			v, ok := m.views[id]
+			m.mu.Unlock()
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"code": 200, "tweet": map[string]any{"id": id, "views": v}})
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/srv/") {
 			h := strings.TrimPrefix(r.URL.Path, "/srv/timeline-profile/screen-name/")
 			m.mu.Lock()
@@ -290,6 +303,12 @@ func newProf() *profMock {
 }
 
 func (m *profMock) set(handle string, n int64) { m.mu.Lock(); m.followers[handle] = n; m.mu.Unlock() }
+func (m *profMock) setViews(tweetID string, n int64) {
+	m.mu.Lock()
+	m.views[tweetID] = n
+	m.mu.Unlock()
+}
+
 func (m *profMock) setRetweets(handle string, ids ...string) {
 	m.mu.Lock()
 	m.retweets[handle] = ids
@@ -1690,4 +1709,115 @@ func TestPublishReviewFlow(t *testing.T) {
 			t.Fatalf("raw value leaked on %s", pth)
 		}
 	}
+}
+
+// ---- 按浏览量计价（CPM） ----
+
+func TestCPMPricing(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice := e.browser("alice")
+	alice.register("alice", "6001")
+	alice.setUID("61001")
+	alice.certify("payer-A60")
+	var ws []*browser
+	for i, h := range []string{"w1", "w2", "w3", "w4"} {
+		b := e.browser(h)
+		b.register(h, fmt.Sprint(6002+i))
+		ws = append(ws, b)
+	}
+	ws[0].bindKey("61002")
+	for _, b := range ws[1:] {
+		b.setUID("6100" + b.who[1:])
+	}
+	// 校验：留存 0 不行；点赞不能按浏览量；保底高于封顶不行
+	base := url.Values{"price_mode": {"cpm"}, "cpm": {"1"}, "floor_amt": {"0.2"}, "cap_amt": {"3"}, "retention": {"24"}, "slots": {"4"}}
+	if resp, _ := alice.post("/new", taskForm(merge(base, url.Values{"retention": {"0"}}))); resp.StatusCode != 400 {
+		t.Fatal("cpm with zero retention must be rejected")
+	}
+	if resp, _ := alice.post("/new", taskForm(merge(base, url.Values{"floor_amt": {"5"}}))); resp.StatusCode != 400 {
+		t.Fatal("floor above cap must be rejected")
+	}
+	e.synd.add(mockTweet{ID: "66001", Text: "目标", UserID: "6001", Handle: "alice"})
+	if resp, _ := alice.post("/new", taskForm(merge(base, url.Values{"ttype": {"like"}, "target": {"https://x.com/alice/status/66001"}, "content1": {""}}))); resp.StatusCode != 400 {
+		t.Fatal("like task cannot be cpm priced")
+	}
+	task := alice.publish(taskForm(base))
+	if !task.CPM() || task.CpmE8 != 100000000 || task.FloorE8 != 20000000 || task.RewardE8 != 300000000 || task.RetentionH != 24 {
+		t.Fatalf("cpm task: %+v", task)
+	}
+	if _, body := ws[0].get("/"); !strings.Contains(body, "千浏览") || !strings.Contains(body, "封顶 3") {
+		t.Fatal("lobby should show cpm pricing")
+	}
+	// 四个人接单发帖 → 已验证（留存 24h）
+	var subs []*Submission
+	for i, b := range ws {
+		x := b.claim(task)
+		tid := fmt.Sprint(66100 + i)
+		e.synd.add(mockTweet{ID: tid, Text: task.Contents[0], UserID: fmt.Sprint(6002 + i), Handle: b.who})
+		x = b.submitTweet(x, tid)
+		if x.Status != SVerified {
+			t.Fatalf("worker %d should be verified: %s %q", i, x.Status, x.LastError)
+		}
+		subs = append(subs, x)
+	}
+	// 记录页在结算前显示预计报酬
+	e.prof.setViews("66100", 2500) // 2.5 U
+	e.prof.setViews("66101", 100)  // 0.1 → 保底 0.2
+	e.prof.setViews("66102", 9000) // 9 → 封顶 3
+	// 66103 读不到
+	e.a.st.db.Exec(`UPDATE submissions SET recheck_due_at=? WHERE task_id=?`, ms()-1, task.ID)
+	e.a.runJobs()
+	want := []int64{250000000, 20000000, 300000000}
+	for i, w := range want {
+		x, _ := e.a.st.GetSubByID(subs[i].ID)
+		if x.Status != SPayable || x.AmountE8 != w {
+			t.Fatalf("sub %d: %s amount=%d want %d", i, x.Status, x.AmountE8, w)
+		}
+	}
+	x3, _ := e.a.st.GetSubByID(subs[3].ID)
+	if x3.Status != SVerified || !strings.Contains(x3.RecheckFlag, "浏览量") {
+		t.Fatalf("unreadable views should retry: %s %q", x3.Status, x3.RecheckFlag)
+	}
+	// 超过 24 小时仍读不到 → 按已记录值（无 → 0）结算为保底
+	e.a.st.db.Exec(`UPDATE submissions SET recheck_due_at=? WHERE id=?`, ms()-25*hourMs, x3.ID)
+	e.a.runJobs()
+	if x3, _ = e.a.st.GetSubByID(x3.ID); x3.Status != SPayable || x3.AmountE8 != 20000000 || !strings.Contains(x3.RecheckFlag, "读取失败") {
+		t.Fatalf("fallback settlement: %s amount=%d flag=%q", x3.Status, x3.AmountE8, x3.RecheckFlag)
+	}
+	// 页面与公开记录用结算金额；网关订单金额也是结算金额
+	if _, body := alice.get(subs[0].Path()); !strings.Contains(body, "2.5 U") || !strings.Contains(body, "2500") {
+		t.Fatal("record page should show the settled amount and views")
+	}
+	if _, body := alice.get(task.Path()); !strings.Contains(body, "去付款 2.5 U") {
+		t.Fatal("owner dashboard should use the settled amount")
+	}
+	if _, body := ws[0].get("/records"); !strings.Contains(body, "2.5 U") {
+		t.Fatal("public records should show the settled amount")
+	}
+	alice.post("/s/"+subs[0].Code+"/pay/order", nil)
+	p0, _ := e.a.st.ActivePayment(subs[0].ID, "gateway")
+	if p0 == nil || p0.BaseE8 != 250000000 {
+		t.Fatalf("gateway order should be for the settled amount: %+v", p0)
+	}
+	e.gw.pay(t, p0.MerchantOrderID, "payer-A60", "2.5")
+	if x0, _ := e.a.st.GetSubByID(subs[0].ID); x0.Status != SPaid || x0.PaidAmountE8 != 250000000 {
+		t.Fatalf("paid amount: %s %d", x0.Status, x0.PaidAmountE8)
+	}
+	// 手动确认路径：按结算金额（保底 0.2）
+	alice.post("/s/"+subs[1].Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068889601"}})
+	ws[1].post("/s/"+subs[1].Code+"/confirm", nil)
+	if x1, _ := e.a.st.GetSubByID(subs[1].ID); x1.Status != SPaid || x1.PaidAmountE8 != 20000000 {
+		t.Fatalf("manual confirm amount: %s %d", x1.Status, x1.PaidAmountE8)
+	}
+}
+
+func merge(a, b url.Values) url.Values {
+	out := url.Values{}
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }

@@ -128,6 +128,7 @@ func (a *App) funcs() template.FuncMap {
 		"xlink":     xUserLink,
 		"kindText":  kindText,
 		"auditText": auditText,
+		"payAmt":    payAmount,
 		"trunc":     truncate,
 		"add":       func(a, b int64) int64 { return a + b },
 		"sub":       func(a, b int64) int64 { return a - b },

@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-const taskCols = `id,code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,status,close_reason,paused_by_freeze,published_at,created_at,updated_at,kind,target_tweet_id,target_url,target_author,target_text,min_len,deadline_days,review_started_at,review_deadline_at,review_result,review_note,review_hold`
+const taskCols = `id,code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,status,close_reason,paused_by_freeze,published_at,created_at,updated_at,kind,target_tweet_id,target_url,target_author,target_text,min_len,deadline_days,review_started_at,review_deadline_at,review_result,review_note,review_hold,price_mode,cpm_e8,floor_e8`
 
 func scanTask(r scanner) (*Task, error) {
 	var t Task
 	var contents, norm string
 	var ad, pbf int64
-	err := r.Scan(&t.ID, &t.Code, &t.OwnerID, &t.Title, &contents, &norm, &t.MatchMode, &t.RewardE8, &t.Currency, &t.SlotsTotal, &t.ClaimTTLMin, &t.RetentionH, &t.PayWindowH, &t.DeadlineAt, &t.MinAccountDays, &t.MinFollowers, &ad, &t.Status, &t.CloseReason, &pbf, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt, &t.Kind, &t.TargetTweetID, &t.TargetURL, &t.TargetAuthor, &t.TargetText, &t.MinLen, &t.DeadlineDays, &t.ReviewStartedAt, &t.ReviewDeadlineAt, &t.ReviewResult, &t.ReviewNote, &t.ReviewHold)
+	err := r.Scan(&t.ID, &t.Code, &t.OwnerID, &t.Title, &contents, &norm, &t.MatchMode, &t.RewardE8, &t.Currency, &t.SlotsTotal, &t.ClaimTTLMin, &t.RetentionH, &t.PayWindowH, &t.DeadlineAt, &t.MinAccountDays, &t.MinFollowers, &ad, &t.Status, &t.CloseReason, &pbf, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt, &t.Kind, &t.TargetTweetID, &t.TargetURL, &t.TargetAuthor, &t.TargetText, &t.MinLen, &t.DeadlineDays, &t.ReviewStartedAt, &t.ReviewDeadlineAt, &t.ReviewResult, &t.ReviewNote, &t.ReviewHold, &t.PriceMode, &t.CpmE8, &t.FloorE8)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -25,9 +25,9 @@ func scanTask(r scanner) (*Task, error) {
 
 func (s *Store) CreateTask(t *Task) (int64, error) {
 	now := ms()
-	res, err := s.db.Exec(`INSERT INTO tasks(code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,kind,target_tweet_id,target_url,target_author,target_text,min_len,deadline_days,review_started_at,review_deadline_at,review_result,status,published_at,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		t.Code, t.OwnerID, t.Title, jsonList(t.Contents), jsonList(t.ContentsNorm), t.MatchMode, t.RewardE8, t.Currency, t.SlotsTotal, t.ClaimTTLMin, t.RetentionH, t.PayWindowH, t.DeadlineAt, t.MinAccountDays, t.MinFollowers, b2i(t.AdTag), t.Kind, t.TargetTweetID, t.TargetURL, t.TargetAuthor, t.TargetText, t.MinLen, t.DeadlineDays, t.ReviewStartedAt, t.ReviewDeadlineAt, t.ReviewResult, t.Status, now, now, now)
+	res, err := s.db.Exec(`INSERT INTO tasks(code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,kind,target_tweet_id,target_url,target_author,target_text,min_len,deadline_days,review_started_at,review_deadline_at,review_result,price_mode,cpm_e8,floor_e8,status,published_at,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.Code, t.OwnerID, t.Title, jsonList(t.Contents), jsonList(t.ContentsNorm), t.MatchMode, t.RewardE8, t.Currency, t.SlotsTotal, t.ClaimTTLMin, t.RetentionH, t.PayWindowH, t.DeadlineAt, t.MinAccountDays, t.MinFollowers, b2i(t.AdTag), t.Kind, t.TargetTweetID, t.TargetURL, t.TargetAuthor, t.TargetText, t.MinLen, t.DeadlineDays, t.ReviewStartedAt, t.ReviewDeadlineAt, t.ReviewResult, t.PriceMode, t.CpmE8, t.FloorE8, t.Status, now, now, now)
 	if err != nil {
 		return 0, err
 	}

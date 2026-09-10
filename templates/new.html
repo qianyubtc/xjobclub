@@ -27,7 +27,13 @@
     </div>
     {{if not .F.EditCode}}
     <div class="grid2">
-      <div><label for="reward">单价（每条完成支付的 U）</label><input id="reward" name="reward" inputmode="decimal" value="{{.F.Reward}}" placeholder="例：2" required><div class="hint">{{amt .Cfg.MinRewardE8}}–{{amt .Cfg.MaxRewardE8}} U</div></div>
+      <div id="priceWrap"><label>计价方式</label>
+        <div class="seg" id="priceSeg"><label id="pmFixed" {{if ne .F.PriceMode "cpm"}}class="on"{{end}}><input type="radio" name="price_mode" value="fixed" {{if ne .F.PriceMode "cpm"}}checked{{end}}>固定单价<small>每条一口价</small></label><label id="pmCpm" {{if eq .F.PriceMode "cpm"}}class="on"{{end}}><input type="radio" name="price_mode" value="cpm" {{if eq .F.PriceMode "cpm"}}checked{{end}}>按浏览量<small>看推文浏览量结算</small></label></div>
+        <div id="fixedWrap" {{if eq .F.PriceMode "cpm"}}hidden{{end}}><label for="reward" class="small">单价（每条完成支付的 U）</label><input id="reward" name="reward" inputmode="decimal" value="{{.F.Reward}}" placeholder="例：2"><div class="hint">{{amt .Cfg.MinRewardE8}}–{{amt .Cfg.MaxRewardE8}} U</div></div>
+        <div id="cpmWrap" {{if ne .F.PriceMode "cpm"}}hidden{{end}}><label for="cpm" class="small">每千次浏览（U）</label><input id="cpm" name="cpm" inputmode="decimal" value="{{.F.CPM}}" placeholder="例：1">
+          <div class="grid2" style="margin-top:6px"><div><label for="floor_amt" class="small">保底（U，可为 0）</label><input id="floor_amt" name="floor_amt" inputmode="decimal" value="{{.F.Floor}}"></div><div><label for="cap_amt" class="small">封顶（U，必填）</label><input id="cap_amt" name="cap_amt" inputmode="decimal" value="{{.F.Cap}}" placeholder="例：5"></div></div>
+          <div class="hint">留存期结束复检通过时读一次浏览量，报酬 = 浏览量 ÷ 1000 × 单价，夹在保底与封顶之间。留存至少 1 天；敞口与等级按封顶算；封顶是你对刷量的保险。</div></div>
+      </div>
       <div><label>任务类型</label>
         <div class="seg" id="kindSeg"><label id="kindOne" {{if eq .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="one" {{if eq .F.Slots "1"}}checked{{end}}>单人任务<small>只需 1 个人发</small></label><label id="kindMany" {{if ne .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="many" {{if ne .F.Slots "1"}}checked{{end}}>多人任务<small>N 个人各发一条</small></label></div>
         <div id="slotsWrap" {{if eq .F.Slots "1"}}hidden{{end}}><label for="slots" class="small">需要多少人（名额）</label><input id="slots" name="slots" inputmode="numeric" value="{{.F.Slots}}" required></div>
@@ -56,10 +62,16 @@
   var seg=document.getElementById('kindSeg'),slots=document.getElementById('slots'),wrap=document.getElementById('slotsWrap');
   if(seg){var prev=slots.value==='1'?'5':slots.value;seg.addEventListener('change',function(e){var one=e.target.value==='one';document.getElementById('kindOne').classList.toggle('on',one);document.getElementById('kindMany').classList.toggle('on',!one);
     if(one){prev=slots.value!=='1'?slots.value:prev;slots.value='1';wrap.hidden=true}else{slots.value=prev||'5';wrap.hidden=false;slots.focus()}})}
+  var pseg=document.getElementById('priceSeg');
+  function applyPrice(m){var cpm=m==='cpm';var fw=document.getElementById('fixedWrap'),cw=document.getElementById('cpmWrap'),rw=document.getElementById('reward'),cp=document.getElementById('cpm'),cap=document.getElementById('cap_amt');
+    if(fw)fw.hidden=cpm;if(cw)cw.hidden=!cpm;if(rw)rw.required=!cpm;if(cp)cp.required=cpm;if(cap)cap.required=cpm;
+    if(pseg)pseg.querySelectorAll('label').forEach(function(l){l.classList.toggle('on',l.querySelector('input').value===m)});
+    var ret=document.getElementById('retention');if(cpm&&ret&&ret.value==='0'){for(var i=0;i<ret.options.length;i++){if(parseInt(ret.options[i].value,10)>=24){ret.value=ret.options[i].value;break}}}}
+  if(pseg){pseg.addEventListener('change',function(e){if(e.target.name==='price_mode')applyPrice(e.target.value)});var pc=document.querySelector('input[name=price_mode]:checked');applyPrice(pc?pc.value:'fixed')}
   var tseg=document.getElementById('ttypeSeg');
   var kindHints={post:'接单方用自己的账号发一条你写好的推文，系统自动验证。',reply:'接单方在目标推文下方直接回复，可指定文案或自由发挥，系统自动验证。',like:'接单方给目标推文点赞。目标必须是你自己的推文：平台读不到点赞名单，只有作者能在 X 上看到，需要你自己核对（48 小时不处理视为通过）。',repost:'接单方转发目标推文。系统先从对方公开时间线自动检测，检测不到再由你核对。'};
   function applyType(v){var manual=v==='like'||v==='repost';var tw=document.getElementById('targetWrap'),cw=document.getElementById('contentWrap'),rw=document.getElementById('retWrap'),ao=document.getElementById('anyOpt'),mw=document.getElementById('minLenWrap'),kh=document.getElementById('kindHint'),cl=document.getElementById('contentLabel'),tg=document.getElementById('target'),c1=document.getElementById('content1');
-    if(tw)tw.hidden=v==='post';if(tg)tg.required=v!=='post';if(cw)cw.hidden=manual;if(rw)rw.hidden=manual;if(kh)kh.textContent=kindHints[v]||'';if(cl)cl.textContent=v==='reply'?'评论文案':'推文文案';
+    if(tw)tw.hidden=v==='post';if(tg)tg.required=v!=='post';if(cw)cw.hidden=manual;if(rw)rw.hidden=manual;var pw=document.getElementById('priceSeg');if(pw){pw.hidden=manual;if(manual){var fx=document.querySelector('input[name=price_mode][value=fixed]');if(fx){fx.checked=true;applyPrice('fixed')}}}if(kh)kh.textContent=kindHints[v]||'';if(cl)cl.textContent=v==='reply'?'评论文案':'推文文案';
     var anyR=document.querySelector('input[name=match_mode][value=any]');if(ao){ao.hidden=v!=='reply';if(v!=='reply'&&anyR&&anyR.checked){document.querySelector('input[name=match_mode][value=exact]').checked=true}}
     var isAny=anyR&&anyR.checked&&v==='reply';if(mw)mw.hidden=!isAny;if(c1)c1.required=!manual&&!isAny;
     if(tseg)tseg.querySelectorAll('label').forEach(function(l){l.classList.toggle('on',l.querySelector('input').value===v)})}

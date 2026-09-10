@@ -88,11 +88,11 @@ func (a *App) handlePayOrder(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, x.Path(), http.StatusFound)
 		return
 	}
-	amount, kind := t.RewardE8, "gateway"
+	amount, kind := payAmount(x, t), "gateway"
 	switch {
 	case x.Status == SPayable || x.Status == SOverdue || (x.Status == SDisputed && x.PrevStatus == SOverdue):
-	case x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < t.RewardE8:
-		amount, kind = t.RewardE8-x.UnderpaidE8, "topup"
+	case x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < payAmount(x, t):
+		amount, kind = payAmount(x, t)-x.UnderpaidE8, "topup"
 	default:
 		a.flash(w, "当前状态不需要付款")
 		http.Redirect(w, r, x.Path(), http.StatusFound)
@@ -278,12 +278,12 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string, full bool) {
 		} else if p.Kind != "topup" {
 			if ok, _ := a.st.SetUnderpaid(x.ID, actualE8); ok {
 				a.st.Audit(0, "sub.underpaid", "submission", x.ID, map[string]any{"actual": fmtE8(actualE8)}, "")
-				a.notify(x.WorkerID, "pay", "收到一笔少付的款项", fmt.Sprintf("任务 %s 应付 %s U，实收 %s U。你可以接受实付完成，或要求补差。", t.Code, fmtE8(t.RewardE8), fmtE8(actualE8)), x.Path())
-				a.notify(t.OwnerID, "pay", "付款金额不足", fmt.Sprintf("任务 %s 应付 %s U，实付 %s U，请等待接单方选择或补差。", t.Code, fmtE8(t.RewardE8), fmtE8(actualE8)), x.Path())
+				a.notify(x.WorkerID, "pay", "收到一笔少付的款项", fmt.Sprintf("任务 %s 应付 %s U，实收 %s U。你可以接受实付完成，或要求补差。", t.Code, fmtE8(payAmount(x, t)), fmtE8(actualE8)), x.Path())
+				a.notify(t.OwnerID, "pay", "付款金额不足", fmt.Sprintf("任务 %s 应付 %s U，实付 %s U，请等待接单方选择或补差。", t.Code, fmtE8(payAmount(x, t)), fmtE8(actualE8)), x.Path())
 			}
 		} else {
 			a.st.db.Exec(`UPDATE submissions SET underpaid_e8=?, updated_at=? WHERE id=?`, total, ms(), x.ID)
-			a.notify(x.WorkerID, "pay", "收到补差，但仍不足", fmt.Sprintf("累计实收 %s U，应付 %s U。", fmtE8(total), fmtE8(t.RewardE8)), x.Path())
+			a.notify(x.WorkerID, "pay", "收到补差，但仍不足", fmt.Sprintf("累计实收 %s U，应付 %s U。", fmtE8(total), fmtE8(payAmount(x, t))), x.Path())
 		}
 	case SDefault:
 		a.st.SetRepaid(x.ID, "gateway", actualE8)

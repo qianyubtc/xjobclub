@@ -247,6 +247,10 @@ type newForm struct {
 	TType     string // post | reply | like | repost
 	Target    string // 目标推文链接
 	MinLen    string
+	PriceMode string // fixed | cpm
+	CPM       string // 每千次浏览 U
+	Floor     string
+	Cap       string
 	AdTag     bool
 	Lens      []int
 	EditCode  string // 编辑已有任务
@@ -273,7 +277,7 @@ var kindOpts = []kindOpt{{"post", "发帖", "发一条推文"}, {"reply", "评�
 
 func (a *App) defaultForm() newForm {
 	c := a.cfg
-	return newForm{TType: "post", MinLen: "10", Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
+	return newForm{TType: "post", MinLen: "10", PriceMode: "fixed", CPM: "1", Floor: "0", Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
 		Retention: strconv.FormatInt(c.RetentionDefault, 10), PayWindow: strconv.FormatInt(c.PayWindowDefault, 10), Deadline: strconv.FormatInt(c.DeadlineDefault, 10), MinDays: "0", MinFans: "0", AdTag: true}
 }
 
@@ -306,6 +310,7 @@ func (a *App) handleNewGet(w http.ResponseWriter, r *http.Request) {
 		if t, _ := a.st.GetTaskByCode(code); t != nil && t.OwnerID == u.ID && t.Status != "closed" {
 			f.EditCode, f.Title, f.MatchMode = t.Code, t.Title, t.MatchMode
 			f.TType, f.Target, f.MinLen = t.Kind, t.TargetURL, strconv.FormatInt(t.MinLen, 10)
+			f.PriceMode, f.CPM, f.Floor, f.Cap = t.PriceMode, fmtE8(t.CpmE8), fmtE8(t.FloorE8), fmtE8(t.RewardE8)
 			copy(f.Contents, t.Contents)
 		}
 	}
@@ -334,7 +339,8 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	c := a.cfg
 	f := newForm{Title: cleanText(r.FormValue("title"), 40, false), MatchMode: r.FormValue("match_mode"), Reward: strings.TrimSpace(r.FormValue("reward")), Slots: r.FormValue("slots"),
 		ClaimTTL: r.FormValue("claim_ttl"), Retention: r.FormValue("retention"), PayWindow: r.FormValue("pay_window"), Deadline: r.FormValue("deadline"), MinDays: r.FormValue("min_days"), MinFans: strings.TrimSpace(r.FormValue("min_followers")),
-		AdTag: r.FormValue("ad_tag") == "1", EditCode: strings.TrimSpace(r.FormValue("edit")), TType: r.FormValue("ttype"), Target: strings.TrimSpace(r.FormValue("target")), MinLen: strings.TrimSpace(r.FormValue("min_len"))}
+		AdTag: r.FormValue("ad_tag") == "1", EditCode: strings.TrimSpace(r.FormValue("edit")), TType: r.FormValue("ttype"), Target: strings.TrimSpace(r.FormValue("target")), MinLen: strings.TrimSpace(r.FormValue("min_len")),
+		PriceMode: r.FormValue("price_mode"), CPM: strings.TrimSpace(r.FormValue("cpm")), Floor: strings.TrimSpace(r.FormValue("floor_amt")), Cap: strings.TrimSpace(r.FormValue("cap_amt"))}
 	for i := int64(0); i < c.MaxVariants; i++ {
 		f.Contents = append(f.Contents, cleanText(r.FormValue("content"+strconv.FormatInt(i+1, 10)), 1000, true))
 	}
@@ -446,10 +452,43 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		}
 		target = tw
 	}
-	reward, err := parseAmountE8(f.Reward, 4)
-	if err != nil || reward < c.MinRewardE8 || reward > c.MaxRewardE8 {
-		bad(fmt.Sprintf("单价须在 %s–%s U 之间，最多 4 位小数", fmtE8(c.MinRewardE8), fmtE8(c.MaxRewardE8)))
-		return
+	if f.PriceMode != "cpm" {
+		f.PriceMode = "fixed"
+	}
+	var reward, cpmE8, floorE8 int64
+	var err error
+	if f.PriceMode == "cpm" {
+		// 按浏览量：单价 = 每千次浏览；封顶存到 reward_e8（敞口与等级按封顶算）
+		if manual {
+			bad("点赞 / 转发任务没有浏览量，不能按浏览量计价")
+			return
+		}
+		cpmE8, err = parseAmountE8(f.CPM, 4)
+		if err != nil || cpmE8 < 100000 || cpmE8 > 50*100000000 {
+			bad("每千次浏览的报酬须在 0.001–50 U 之间")
+			return
+		}
+		if f.Floor != "" {
+			if floorE8, err = parseAmountE8(f.Floor, 4); err != nil || floorE8 < 0 {
+				bad("保底金额不对")
+				return
+			}
+		}
+		reward, err = parseAmountE8(f.Cap, 4)
+		if err != nil || reward < c.MinRewardE8 || reward > c.MaxRewardE8 {
+			bad(fmt.Sprintf("封顶须在 %s–%s U 之间", fmtE8(c.MinRewardE8), fmtE8(c.MaxRewardE8)))
+			return
+		}
+		if floorE8 > reward {
+			bad("保底不能高于封顶")
+			return
+		}
+	} else {
+		reward, err = parseAmountE8(f.Reward, 4)
+		if err != nil || reward < c.MinRewardE8 || reward > c.MaxRewardE8 {
+			bad(fmt.Sprintf("单价须在 %s–%s U 之间，最多 4 位小数", fmtE8(c.MinRewardE8), fmtE8(c.MaxRewardE8)))
+			return
+		}
 	}
 	slots, _ := strconv.ParseInt(f.Slots, 10, 64)
 	if slots < 1 || slots > c.MaxSlots {
@@ -464,6 +503,9 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	ret, _ := strconv.ParseInt(f.Retention, 10, 64)
 	if manual {
 		ret = 0 // 点赞/转发无法复检
+	} else if f.PriceMode == "cpm" && ret < 24 {
+		bad("按浏览量计价的任务留存时长至少 1 天，留存期结束时读取浏览量结算")
+		return
 	} else if !containsInt(c.RetentionOptions, ret) {
 		bad("留存时长不在可选范围")
 		return
@@ -492,7 +534,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := &Task{Code: newCode("T"), OwnerID: u.ID, Title: f.Title, Contents: contents, ContentsNorm: norm, MatchMode: f.MatchMode, RewardE8: reward, Currency: c.Currency,
-		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, MinFollowers: minFans, AdTag: f.AdTag, Kind: f.TType, MinLen: minLen}
+		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, MinFollowers: minFans, AdTag: f.AdTag, Kind: f.TType, MinLen: minLen, PriceMode: f.PriceMode, CpmE8: cpmE8, FloorE8: floorE8}
 	if target != nil {
 		t.TargetTweetID, t.TargetURL, t.TargetAuthor, t.TargetText = target.ID, "https://x.com/"+target.User.Handle+"/status/"+target.ID, target.User.Handle, truncate(target.Text, 140)
 	}
@@ -517,7 +559,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	a.st.Audit(u.ID, "task.create", "task", id, map[string]any{"reward": fmtE8(reward), "slots": slots, "kind": f.TType}, a.ip(r))
+	a.st.Audit(u.ID, "task.create", "task", id, map[string]any{"reward": fmtE8(reward), "slots": slots, "kind": f.TType, "price": f.PriceMode}, a.ip(r))
 	if t.Status == TReview {
 		a.flash(w, fmt.Sprintf("已提交社区审核（约 %s），通过后自动上线，会通知你", dur(a.cfg.ReviewWindowH)))
 	} else {

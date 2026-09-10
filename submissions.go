@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,9 @@ type subPage struct {
 	Err          string
 	Amount       string // 应付金额（含少付时的差额）
 	TopupE8      int64
+	Due          int64 // 应付金额（按浏览量结算过则为结算金额）
+	EstE8        int64 // 按浏览量：当前预计报酬
+	Anomaly      bool  // 浏览量远超粉丝数
 	Cfg          *Config
 }
 
@@ -150,8 +154,18 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	p.CanCheck = p.IsOwner && x.Status == SChecking
 	p.CheckDue = x.CheckingAt + checkWindowMs
 	p.TopupE8 = 0
-	if x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < t.RewardE8 {
-		p.TopupE8 = t.RewardE8 - x.UnderpaidE8
+	p.Due = payAmount(x, t)
+	if t.CPM() && x.AmountE8 == 0 {
+		p.EstE8 = cpmAmount(t, x.Views)
+		if x.Status == SVerified && ms()-x.ViewsAt > 10*60*1000 && a.lim.allow("views:"+strconv.FormatInt(x.ID, 10), 1, 10*time.Minute) {
+			go a.sampleViews(x.ID, x.TweetID) // 记录页顺手刷新一次浏览量（异步，10 分钟一次）
+		}
+	}
+	if t.CPM() && p.IsOwner && x.Views > 5000 && p.Worker != nil && p.Worker.Followers > 0 && x.Views > 50*p.Worker.Followers {
+		p.Anomaly = true // 浏览量远超粉丝数：提示发布方留意刷量
+	}
+	if x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < p.Due {
+		p.TopupE8 = p.Due - x.UnderpaidE8
 	}
 	disputedOverdue := x.Status == SDisputed && x.PrevStatus == SOverdue
 	payState := x.Status == SPayable || x.Status == SOverdue || disputedOverdue || p.TopupE8 > 0
@@ -162,7 +176,7 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	if p.TopupE8 > 0 {
 		p.Amount = fmtE8(p.TopupE8)
 	} else {
-		p.Amount = fmtE8(t.RewardE8)
+		p.Amount = fmtE8(p.Due)
 	}
 	if p.CanPay {
 		kind := "gateway"
@@ -305,8 +319,8 @@ func (a *App) handleDone(w http.ResponseWriter, r *http.Request) {
 		if found, ferr := a.fetchRetweeted(u.Handle, t.TargetTweetID); ferr == nil && found {
 			if ok2, _ := a.st.SetCheckedOK(x.ID, []string{SClaimed}, ms()+t.PayWindowH*hourMs, 0); ok2 {
 				a.st.Audit(u.ID, "sub.repost_detected", "submission", x.ID, map[string]any{"target": t.TargetTweetID}, a.ip(r))
-				a.notify(u.ID, "verify", "已检测到你的转发，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
-				a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已转发《%s》（已自动检测到），请在 %s 内付款 %s U。", u.Handle, t.Title, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+				a.notify(u.ID, "verify", "已检测到你的转发，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
+				a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已转发《%s》（已自动检测到），请在 %s 内付款 %s U。", u.Handle, t.Title, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 				a.flash(w, "已检测到你的转发，进入待付款")
 				http.Redirect(w, r, x.Path(), http.StatusFound)
 				return
@@ -352,7 +366,7 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.st.Audit(u.ID, "sub.check_ok", "submission", x.ID, nil, a.ip(r))
-		a.notify(x.WorkerID, "verify", "发布方已确认，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+		a.notify(x.WorkerID, "verify", "发布方已确认，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 		a.flash(w, "已确认，进入待付款")
 	case "no":
 		note := cleanText(r.FormValue("note"), 200, false)
@@ -429,7 +443,7 @@ func (a *App) handlePayMark(w http.ResponseWriter, r *http.Request) {
 	if ref == "" {
 		ref = note
 	}
-	a.notify(x.WorkerID, "pay", "发布方已标记付款，请核对到账", fmt.Sprintf("任务 %s 的 %s U，%s。请核对后点「已收到」；没收到请发起申诉。24 小时未处理会暂时不能接新任务。", t.Code, fmtE8(t.RewardE8), ref), x.Path())
+	a.notify(x.WorkerID, "pay", "发布方已标记付款，请核对到账", fmt.Sprintf("任务 %s 的 %s U，%s。请核对后点「已收到」；没收到请发起申诉。24 小时未处理会暂时不能接新任务。", t.Code, fmtE8(payAmount(x, t)), ref), x.Path())
 	a.flash(w, "已登记，等待接单方确认")
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }
@@ -449,7 +463,7 @@ func (a *App) handleConfirm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, x.Path(), http.StatusFound)
 		return
 	}
-	amount := t.RewardE8
+	amount := payAmount(x, t)
 	if x.UnderpaidE8 > 0 && x.TopupMarkedAt == 0 {
 		amount = x.UnderpaidE8
 	}
@@ -489,7 +503,7 @@ func (a *App) handleUnderpaid(w http.ResponseWriter, r *http.Request) {
 			a.flash(w, "已经要求过补差，等发布方处理")
 			break
 		}
-		a.notify(t.OwnerID, "pay", "接单方要求补足差额", fmt.Sprintf("任务 %s 实付 %s U，少 %s U，请补付。", t.Code, fmtE8(x.UnderpaidE8), fmtE8(t.RewardE8-x.UnderpaidE8)), x.Path())
+		a.notify(t.OwnerID, "pay", "接单方要求补足差额", fmt.Sprintf("任务 %s 实付 %s U，少 %s U，请补付。", t.Code, fmtE8(x.UnderpaidE8), fmtE8(payAmount(x, t)-x.UnderpaidE8)), x.Path())
 		a.st.Audit(u.ID, "sub.topup_requested", "submission", x.ID, nil, a.ip(r))
 		a.flash(w, "已通知发布方补差")
 	}

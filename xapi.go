@@ -313,3 +313,33 @@ func followersFor(body []byte, handle string) (int64, bool) {
 	n, err := strconv.ParseInt(string(body[counts[best][2]:counts[best][3]]), 10, 64)
 	return n, err == nil
 }
+
+// fetchViews 读一条推文的浏览量（X 官方 syndication 不给，用 FxTwitter 公开接口）。
+func (a *App) fetchViews(tweetID string) (int64, error) {
+	if a.cfg.XProfileAPI == "" || tweetID == "" {
+		return -1, errors.New("no views source")
+	}
+	a.fetchSem <- struct{}{}
+	defer func() { <-a.fetchSem }()
+	req, _ := http.NewRequest("GET", a.cfg.XProfileAPI+"/status/"+tweetID, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (xjobclub)")
+	req.Header.Set("Accept", "application/json")
+	resp, err := xHC.Do(req)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	if resp.StatusCode != 200 {
+		return -1, fmt.Errorf("views http %d", resp.StatusCode)
+	}
+	var out struct {
+		Tweet struct {
+			Views *int64 `json:"views"`
+		} `json:"tweet"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.Tweet.Views == nil {
+		return -1, errors.New("views missing")
+	}
+	return *out.Tweet.Views, nil
+}

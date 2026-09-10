@@ -157,12 +157,15 @@ func (a *App) verifySubmission(x *Submission) {
 		return
 	}
 	a.st.Audit(0, "sub.verified", "submission", x.ID, map[string]any{"tweet": x.TweetID}, "")
+	if t.CPM() {
+		go a.sampleViews(x.ID, x.TweetID)
+	}
 	if recheck > 0 {
 		a.notify(w.ID, "verify", "验证通过", fmt.Sprintf("推文需保留 %s，复检通过后进入待付款。", dur(t.RetentionH)), x.Path())
 		a.notify(t.OwnerID, "task", "@"+w.Handle+" 已"+t.DoneVerb()+"并通过验证", fmt.Sprintf("《%s》：推文进入 %s 留存期，%s 复检通过后需要你付款 %s U。", t.Title, dur(t.RetentionH), fmtTime(recheck), fmtE8(t.RewardE8)), x.Path())
 	} else {
 		a.notify(w.ID, "verify", "验证通过，等待付款", fmt.Sprintf("发布方须在 %s 内付款。", dur(t.PayWindowH)), x.Path())
-		a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已完成任务 %s，请在 %s 内付款 %s U。", w.Handle, t.Code, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+		a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已完成任务 %s，请在 %s 内付款 %s U。", w.Handle, t.Code, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 	}
 }
 
@@ -178,6 +181,27 @@ func (a *App) recheckSubmission(x *Submission) {
 	}
 	deadline := ms() + t.PayWindowH*hourMs
 	pass := func(flag string) {
+		if t.CPM() {
+			// 按浏览量计价：此刻读一次浏览量结算；读不到先重试，超过 24 小时按已记录的最大值算
+			v, verr := a.fetchViews(x.TweetID)
+			if verr != nil {
+				if ms()-x.RecheckDueAt < dayMs {
+					a.st.SetRecheckRetry(x.ID, ms()+hourMs, "浏览量暂时读不到，1 小时后重试")
+					return
+				}
+				v = x.Views
+				flag = strings.TrimSpace(flag + " 浏览量读取失败，按已记录值结算")
+			} else if v < x.Views {
+				v = x.Views
+			}
+			amount := cpmAmount(t, v)
+			if ok, _ := a.st.SetPayableAmount(x.ID, deadline, flag, amount, v); ok {
+				a.st.Audit(0, "sub.payable", "submission", x.ID, map[string]any{"flag": flag, "views": v, "amount": fmtE8(amount)}, "")
+				a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 的推文留存复检通过，结算浏览量 %d，报酬 %s U，请在 %s 内付款。", w.Handle, v, fmtE8(amount), dur(t.PayWindowH)), x.Path())
+				a.notify(w.ID, "verify", "留存复检通过", fmt.Sprintf("结算浏览量 %d，报酬 %s U。发布方须在 %s 内付款。", v, fmtE8(amount), dur(t.PayWindowH)), x.Path())
+			}
+			return
+		}
 		if ok, _ := a.st.SetPayable(x.ID, deadline, flag); ok {
 			a.st.Audit(0, "sub.payable", "submission", x.ID, map[string]any{"flag": flag}, "")
 			a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 的推文留存复检通过，请在 %s 内付款 %s U。", w.Handle, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
@@ -238,4 +262,11 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n]) + "…"
+}
+
+// sampleViews 顺手记一次浏览量（只增不减），供记录页展示与读取失败时兜底。
+func (a *App) sampleViews(subID int64, tweetID string) {
+	if v, err := a.fetchViews(tweetID); err == nil && v >= 0 {
+		a.st.SetViews(subID, v)
+	}
 }

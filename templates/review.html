@@ -7,8 +7,8 @@
 </section>
 {{range .Tasks}}{{$o := index $.Owners .OwnerID}}{{$s := index $.Stats .OwnerID}}{{$r := index $.Infos .ID}}
 <section class="card">
-  <div class="row between"><h2 style="margin:0"><a href="{{.Path}}">{{.Title}}</a></h2><div class="big amt">{{amt .RewardE8}} <small style="font-size:13px">U / {{.Unit}}</small></div></div>
-  <div class="row small muted" style="margin:6px 0 10px"><span class="chip kind">{{.KindText}}任务</span><span>{{.SlotsTotal}} 个名额</span>{{if not .Manual}}<span>留存 {{dur .RetentionH}}</span>{{end}}<span>付款时限 {{dur .PayWindowH}}</span>{{if .MinFollowers}}<span>粉丝 ≥ {{.MinFollowers}}</span>{{end}}{{if .MinAccountDays}}<span>X 注册满 {{.MinAccountDays}} 天</span>{{end}}</div>
+  <div class="row between"><h2 style="margin:0"><a href="{{.Path}}">{{.Title}}</a></h2><div class="big amt">{{if .CPM}}{{amt .CpmE8}} <small style="font-size:13px">U / 千浏览</small>{{else}}{{amt .RewardE8}} <small style="font-size:13px">U / {{.Unit}}</small>{{end}}</div></div>
+  <div class="row small muted" style="margin:6px 0 10px"><span class="chip kind">{{.KindText}}任务</span><span>{{.SlotsTotal}} 个名额</span>{{if .CPM}}<span>保底 {{amt .FloorE8}} · 封顶 {{amt .RewardE8}} U</span>{{end}}{{if not .Manual}}<span>留存 {{dur .RetentionH}}</span>{{end}}<span>付款时限 {{dur .PayWindowH}}</span>{{if .MinFollowers}}<span>粉丝 ≥ {{.MinFollowers}}</span>{{end}}{{if .MinAccountDays}}<span>X 注册满 {{.MinAccountDays}} 天</span>{{end}}</div>
   {{if and .Kind (ne .Kind "post")}}<div class="kv"><span class="k">目标推文</span><span class="v"><a href="{{.TargetURL}}" target="_blank" rel="noopener">@{{.TargetAuthor}} 的推文 ↗</a>{{if .TargetText}}<div class="small muted">{{trunc .TargetText 120}}</div>{{end}}</span></div>{{end}}
   {{range .Contents}}<pre class="tweet">{{.}}</pre>{{end}}{{if and (eq .MatchMode "any") (not .Contents)}}<p class="muted small">评论自由发挥，至少 {{.MinLen}} 字。</p>{{end}}
   {{if $o}}<div class="small" style="margin:10px 0">发布方 {{template "usermini" $o}} · 网关核销 {{$s.PaidGateway}} 单 · 逾期 {{$s.Overdue}} 次{{if $s.CheckVoids}} · 核对作废 {{$s.CheckVoids}}{{end}} · 注册于 {{fdate $o.CreatedAt}}{{if $o.XCreatedMs}} · X 账号约创建于 {{fdate $o.XCreatedMs}}{{end}}</div>{{end}}

@@ -103,6 +103,9 @@ type Task struct {
 	ReviewResult     string // vote_pass | vote_reject | timeout_pass | admin_pass | admin_reject | skipped
 	ReviewNote       string
 	ReviewHold       int64  // 1 = 到期仍有反对，等管理员裁定
+	PriceMode        string // fixed 固定单价 | cpm 按浏览量（reward_e8 存封顶）
+	CpmE8            int64  // 每千次浏览的报酬
+	FloorE8          int64  // 保底
 	Status           string // open | paused | closed
 	CloseReason      string
 	PausedByFreeze   bool
@@ -132,6 +135,40 @@ func (t *Task) NeedsTweet() bool { return t.Kind == "" || t.Kind == "post" || t.
 func (t *Task) Manual() bool { return t.Kind == "like" || t.Kind == "repost" }
 
 func (t *Task) KindText() string { return kindText(t.Kind) }
+
+// CPM 是否按浏览量计价（reward_e8 是封顶，结算金额写在记录上）。
+func (t *Task) CPM() bool { return t.PriceMode == "cpm" }
+
+// PriceText 计价说明。
+func (t *Task) PriceText() string {
+	if t.CPM() {
+		return fmtE8(t.CpmE8) + " U / 千浏览 · 保底 " + fmtE8(t.FloorE8) + " · 封顶 " + fmtE8(t.RewardE8) + " U"
+	}
+	return fmtE8(t.RewardE8) + " U / " + t.Unit()
+}
+
+// payAmount 一条记录应付多少：按浏览量结算过就用结算金额，否则用任务单价（封顶）。
+func payAmount(x *Submission, t *Task) int64 {
+	if x != nil && x.AmountE8 > 0 {
+		return x.AmountE8
+	}
+	return t.RewardE8
+}
+
+// cpmAmount 浏览量 → 报酬：views/1000 × 单价，夹在保底与封顶之间，取到 4 位小数。
+func cpmAmount(t *Task, views int64) int64 {
+	if views < 0 {
+		views = 0
+	}
+	amt := views * t.CpmE8 / 1000
+	if amt < t.FloorE8 {
+		amt = t.FloorE8
+	}
+	if amt > t.RewardE8 {
+		amt = t.RewardE8
+	}
+	return amt / 10000 * 10000
+}
 
 // Unit 计价单位。
 func (t *Task) Unit() string {
@@ -248,6 +285,10 @@ type Submission struct {
 	CheckNote      string
 	CheckRejects   int64
 	CheckAuto      int64 // 1 = 发布方超时未核对，视为通过
+	AmountE8       int64 // 按浏览量结算后的应付金额（0 = 用任务单价）
+	Views          int64 // 记录到的最大浏览量，-1 未知
+	ViewsAt        int64
+	SettleViews    int64 // 结算时采用的浏览量，-1 未结算
 	CreatedAt      int64
 	UpdatedAt      int64
 

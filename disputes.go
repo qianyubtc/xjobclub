@@ -498,7 +498,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 				a.blacklistUser(owner, "publisher", "虚假标记已付款（B 类申诉成立）", d.ID, ip)
 			}
 		case "b_late":
-			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
+			if ok, _ := a.st.SetPaid(x.ID, "admin", payAmount(x, t)); ok {
 				a.st.db.Exec(`UPDATE submissions SET late=1 WHERE id=?`, x.ID)
 				a.settlePaid(x, t, by, "admin", false)
 			}
@@ -507,18 +507,18 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			}
 		case "b_underpaid":
 			amt, err := parseAmountE8(extra, 8)
-			if err != nil || amt <= 0 || amt >= t.RewardE8 {
+			if err != nil || amt <= 0 || amt >= payAmount(x, t) {
 				return errors.New("请填写正确的实付金额（小于应付）")
 			}
 			a.st.RestoreFromDispute(x.ID, SAwait)
 			a.st.db.Exec(`UPDATE submissions SET underpaid_e8=?, marked_paid_at=?, topup_requested_at=?, topup_marked_at=0, updated_at=? WHERE id=?`, amt, ms(), ms(), ms(), x.ID)
 			a.notify(x.WorkerID, "pay", "裁决：款项少付", fmt.Sprintf("实付 %s U，你可以接受或要求补差。", fmtE8(amt)), x.Path())
 		case "b_wrong_uid":
-			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
+			if ok, _ := a.st.SetPaid(x.ID, "admin", payAmount(x, t)); ok {
 				a.settlePaid(x, t, by, "admin", false)
 			}
 		case "b_worker_lied":
-			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
+			if ok, _ := a.st.SetPaid(x.ID, "admin", payAmount(x, t)); ok {
 				a.settlePaid(x, t, by, "admin", false)
 			}
 			if worker != nil {
@@ -552,7 +552,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			a.st.db.Exec(`UPDATE submissions SET recheck_flag='forced' WHERE id=? AND status='verified'`, x.ID)
 			a.st.Audit(by, "sub.force_verified", "submission", x.ID, map[string]any{"tweet": id}, ip)
 			if deadline > 0 {
-				a.notify(t.OwnerID, "pay", "有一条记录待付款（管理员核定）", fmt.Sprintf("请在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+				a.notify(t.OwnerID, "pay", "有一条记录待付款（管理员核定）", fmt.Sprintf("请在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 			}
 		} else if x.Status == SClaimed && x.ClaimExpiresAt < ms()+30*60*1000 {
 			a.st.db.Exec(`UPDATE submissions SET claim_expires_at=?, updated_at=? WHERE id=?`, ms()+30*60*1000, ms(), x.ID)
@@ -585,7 +585,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			}
 			a.st.db.Exec(`UPDATE submissions SET void_reason='', updated_at=? WHERE id=?`, ms(), x.ID)
 			a.st.Audit(by, "sub.check_ok", "submission", x.ID, map[string]any{"reason": "G 类申诉成立"}, ip)
-			a.notify(t.OwnerID, "pay", "核对争议成立，请付款", fmt.Sprintf("记录 %s 经裁决视为已完成，请在 %s 内付款 %s U。", x.Code, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+			a.notify(t.OwnerID, "pay", "核对争议成立，请付款", fmt.Sprintf("记录 %s 经裁决视为已完成，请在 %s 内付款 %s U。", x.Code, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 		}
 	case "E":
 		if t == nil {
@@ -651,7 +651,7 @@ func (a *App) blacklistUser(u *User, role, reason string, disputeID int64, ip st
 			}
 			if ok, _ := a.st.SetDefaulted(x.ID); ok {
 				if t, _ := a.st.GetTaskByID(x.TaskID); t != nil {
-					owed += t.RewardE8
+					owed += payAmount(x, t)
 				}
 				a.st.Audit(0, "sub.defaulted", "submission", x.ID, nil, "")
 				a.notify(x.WorkerID, "dispute", "发布方已上黑名单，记录转为违约", "欠款会公示在黑名单榜；对方补付后会通知你。", x.Path())

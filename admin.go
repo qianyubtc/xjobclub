@@ -297,7 +297,7 @@ func (a *App) handleAdminSub(w http.ResponseWriter, r *http.Request) {
 			a.closePendingForSub(x.ID)
 		}
 	case "paid":
-		if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); !ok {
+		if ok, _ := a.st.SetPaid(x.ID, "admin", payAmount(x, t)); !ok {
 			err = ErrState
 		} else {
 			a.afterPaid(x, t, admin.ID, "admin")
@@ -324,8 +324,8 @@ func (a *App) handleAdminSub(w http.ResponseWriter, r *http.Request) {
 		if x.Status != SDefault {
 			err = ErrState
 		} else {
-			a.st.SetRepaid(x.ID, "admin", t.RewardE8)
-			a.st.RepayBlacklist(t.OwnerID, t.RewardE8)
+			a.st.SetRepaid(x.ID, "admin", payAmount(x, t))
+			a.st.RepayBlacklist(t.OwnerID, payAmount(x, t))
 		}
 	default:
 		a.errorPage(w, r, http.StatusNotFound, "操作不存在", "")

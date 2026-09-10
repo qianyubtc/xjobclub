@@ -7,7 +7,7 @@
   <td><a href="{{.X.Path}}"><code>{{.X.Code}}</code></a></td>
   <td>{{if .T}}<a href="{{.T.Path}}">{{.T.Title}}</a>{{end}}</td>
   <td>{{if .Other}}<a href="{{.Other.Path}}">@{{.Other.Handle}}</a>{{end}}</td>
-  <td class="num">{{if .T}}{{amt .T.RewardE8}} U{{end}}</td>
+  <td class="num">{{if .T}}{{amt (payAmt .X .T)}} U{{end}}</td>
   <td><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></td>
   <td class="small muted">{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</td>
 </tr>{{end}}
@@ -15,14 +15,14 @@
   <span class="code">{{.X.Code}}<small>记录</small></span>
   <span class="tt">{{if .T}}{{.T.Title}}{{else}}—{{end}}</span>
   <span class="sub">{{if .Other}}@{{.Other.Handle}} · {{end}}{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else if eq .X.Status "overdue"}}逾期 {{ago .X.OverdueAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</span>
-  <span class="right"><span class="money">{{if .T}}{{amt .T.RewardE8}} U{{end}}</span><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></span>
+  <span class="right"><span class="money">{{if .T}}{{amt (payAmt .X .T)}} U{{end}}</span><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></span>
 </a>{{end}}
 {{define "taskcard"}}<a class="ticket" href="{{.T.Path}}">
-  <div class="stub"><div class="r">{{amt .T.RewardE8}}</div><div class="u">U / {{.T.Unit}}</div><div class="left">剩 {{.T.Left}} 单</div></div>
+  <div class="stub">{{if .T.CPM}}<div class="r">{{amt .T.CpmE8}}</div><div class="u">U / 千浏览</div>{{else}}<div class="r">{{amt .T.RewardE8}}</div><div class="u">U / {{.T.Unit}}</div>{{end}}<div class="left">剩 {{.T.Left}} 单</div></div>
   <div class="body">
     <div class="tt">{{.T.Title}}</div>
     <div class="meta">{{if .Owner}}<span>@{{.Owner.Handle}}</span><span>网关核销 <b>{{.Stats.PaidGateway}}</b> 单</span>{{if .Stats.Overdue}}<span style="color:var(--red)">逾期 {{.Stats.Overdue}}</span>{{end}}{{end}}<span>截止 {{fdate .T.DeadlineAt}}</span></div>
-    <div class="chips">{{if and .T.Kind (ne .T.Kind "post")}}<span class="chip kind">{{.T.KindText}}任务</span>{{end}}{{if not .T.Manual}}<span class="chip">留存 {{dur .T.RetentionH}}</span>{{end}}<span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .T.MinFollowers}}<span class="chip">粉丝 ≥ {{.T.MinFollowers}}</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
+    <div class="chips">{{if and .T.Kind (ne .T.Kind "post")}}<span class="chip kind">{{.T.KindText}}任务</span>{{end}}{{if .T.CPM}}<span class="chip hot">保底 {{amt .T.FloorE8}} · 封顶 {{amt .T.RewardE8}} U</span>{{end}}{{if not .T.Manual}}<span class="chip">留存 {{dur .T.RetentionH}}</span>{{end}}<span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .T.MinFollowers}}<span class="chip">粉丝 ≥ {{.T.MinFollowers}}</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
   </div>
 </a>{{end}}
 {{define "disputebody"}}

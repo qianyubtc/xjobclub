@@ -5,7 +5,7 @@
   <div class="kv" style="margin-top:10px">
     <span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> <code>{{.T.Code}}</code>{{if and .T.Kind (ne .T.Kind "post")}} <span class="chip kind">{{.T.KindText}}</span>{{end}}</span>
     {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">目标推文</span><span class="v"><a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}} <span class="muted small">{{trunc .T.TargetText 60}}</span>{{end}}</span>{{end}}
-    <span class="k">报酬</span><span class="v amt">{{amt .T.RewardE8}} U{{if .X.UnderpaidE8}} <span class="st warn">实收 {{amt .X.UnderpaidE8}} U（少付）</span>{{end}}{{if eq .X.Status "paid"}} <span class="muted">实付 {{amt .X.PaidAmountE8}} U · {{methodText .X.ConfirmMethod}}{{if .X.Late}} · 逾期付款{{end}}</span>{{end}}</span>
+    <span class="k">报酬</span><span class="v amt">{{if .T.CPM}}{{if .X.AmountE8}}{{amt .X.AmountE8}} U <span class="muted small">按浏览量结算（{{.X.SettleViews}} 次浏览 × {{amt .T.CpmE8}} U/千，保底 {{amt .T.FloorE8}}，封顶 {{amt .Due}}）</span>{{else}}按浏览量：{{amt .T.CpmE8}} U / 千 · 保底 {{amt .T.FloorE8}} · 封顶 {{amt .Due}} U{{if ge .X.Views 0}}<div class="small muted">当前浏览 {{.X.Views}}（{{ago .X.ViewsAt}}）≈ {{amt .EstE8}} U，留存期结束时以当时读数结算</div>{{end}}{{end}}{{else}}{{amt .Due}} U{{end}}{{if .X.UnderpaidE8}} <span class="st warn">实收 {{amt .X.UnderpaidE8}} U（少付）</span>{{end}}{{if eq .X.Status "paid"}} <span class="muted">实付 {{amt .X.PaidAmountE8}} U · {{methodText .X.ConfirmMethod}}{{if .X.Late}} · 逾期付款{{end}}</span>{{end}}</span>
     <span class="k">发布方</span><span class="v">{{if .Owner}}{{template "usermini" .Owner}}{{end}}</span>
     <span class="k">接单方</span><span class="v">{{if .Worker}}{{template "usermini" .Worker}}{{end}}</span>
     {{if .X.TweetID}}<span class="k">{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}</span><span class="v"><a href="https://x.com/i/web/status/{{.X.TweetID}}" target="_blank" rel="noopener">x.com/i/web/status/{{.X.TweetID}}</a></span>{{end}}
@@ -20,6 +20,7 @@
   {{if and (eq .X.Status "claimed") .X.LastError}}<div class="notice bad">上次验证未通过：{{.X.LastError}}<br><span class="small">已用 {{.X.VerifyAttempts}}/{{.Cfg.VerifyAttempts}} 次提交机会</span></div>{{end}}
   {{if and (eq .X.Status "claimed") .X.CheckRejects}}<div class="notice bad">发布方核对后没有看到你的{{.T.DoneVerb}}{{if .X.CheckNote}}：{{.X.CheckNote}}{{end}}<br><span class="small">请确认是用{{with .Worker}} @{{.Handle}}{{end}} 完成的，再重新提交核对；已退回 {{.X.CheckRejects}} 次，第二次退回将作废。</span></div>{{end}}
   {{if and (eq .X.Status "submitted") .X.NextVerifyAt}}<div class="notice"><span class="spin"></span>{{.X.LastError}}（下次 {{ftime .X.NextVerifyAt}}）</div>{{end}}
+  {{if .Anomaly}}<div class="notice warn">增长异常提示：这条推文浏览量 {{.X.Views}}，而接单方粉丝数只有 {{with .Worker}}{{.Followers}}{{end}}。多数正常内容不会有这么大的倍数，付款前建议看一眼推文的互动是否真实；确认有问题可发起申诉。</div>{{end}}
   {{if .Dispute}}<div class="notice warn">有申诉进行中：<a href="{{.Dispute.Path}}"><code>{{.Dispute.Code}}</code> {{dtype .Dispute.Type}} · {{dstatus .Dispute.Status}}</a></div>{{end}}
 </section>
 
@@ -67,16 +68,16 @@
 {{else if eq .X.Status "awaiting_confirm"}}
 <section class="card">
   <h2 style="margin-top:0">请核对到账</h2>
-  {{if .X.UnderpaidE8}}<div class="notice warn">网关确认到账 <b>{{amt .X.UnderpaidE8}} U</b>，少于应付 {{amt .T.RewardE8}} U。</div>
+  {{if .X.UnderpaidE8}}<div class="notice warn">网关确认到账 <b>{{amt .X.UnderpaidE8}} U</b>，少于应付 {{amt .Due}} U。</div>
     {{if .X.TopupMarkedAt}}<p>发布方已登记补差{{if .X.TopupOrderID}}，币安订单 <code>{{.X.TopupOrderID}}</code>{{end}}（{{ftime .X.TopupMarkedAt}}）。请到币安 App 核对补差是否到账。</p>
-      <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到补差、合计 {{amt .T.RewardE8}} U？确认后记录按全额完成。"><button class="btn">✅ 已收到补差，按全额完成</button></form>
+      <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到补差、合计 {{amt .Due}} U？确认后记录按全额完成。"><button class="btn">✅ 已收到补差，按全额完成</button></form>
       <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">没收到补差，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
       {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>补差没到账？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button></form></details>{{end}}{{end}}
     {{else if .X.TopupRequested}}<div class="notice">已要求发布方补差 {{amt .TopupE8}} U（{{ago .X.TopupRequested}}），等待对方付款；期间不影响你接单。补差到账会自动完成，发布方手动登记后这里会出现确认按钮。</div>
       <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">不等了，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
     {{else}}<div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>{{end}}
   {{else}}<p>发布方于 {{ftime .X.MarkedPaidAt}} 标记已付{{if .X.MarkedOrderID}}，币安订单 <code>{{.X.MarkedOrderID}}</code>。请打开币安 App → 支付 → 交易记录核对。{{else if .X.MarkedNote}}：{{.X.MarkedNote}}。这是你自定义的收款方式，平台不核验，请自行到对应钱包 / 账户核对到账后再确认。{{else}}。请打开币安 App → 支付 → 交易记录核对。{{end}}</p>
-    <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .T.RewardE8}} U？确认后记录完成，不可撤销。"><button class="btn">✅ 已收到，完成</button></form>
+    <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .Due}} U？确认后记录完成，不可撤销。"><button class="btn">✅ 已收到，完成</button></form>
     {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉即解除你的锁定。如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
     <div class="hint" style="margin-top:8px">标记后 24 小时内未处理，你将暂时不能接新任务。</div>{{end}}
 </section>

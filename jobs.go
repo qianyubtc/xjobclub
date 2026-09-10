@@ -236,7 +236,7 @@ func (a *App) autoApproveCheckings(now int64) {
 			continue
 		}
 		a.st.Audit(0, "sub.check_auto", "submission", x.ID, nil, "")
-		a.notify(x.WorkerID, "verify", "发布方超时未核对，视为通过", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
-		a.notify(t.OwnerID, "pay", "待核对超时视为通过，请付款", fmt.Sprintf("《%s》有一条%s记录 48 小时未核对，已进入待付款，请在 %s 内付款 %s U。确实没完成的话可在记录页发起申诉。", t.Title, t.DoneVerb(), dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+		a.notify(x.WorkerID, "verify", "发布方超时未核对，视为通过", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
+		a.notify(t.OwnerID, "pay", "待核对超时视为通过，请付款", fmt.Sprintf("《%s》有一条%s记录 48 小时未核对，已进入待付款，请在 %s 内付款 %s U。确实没完成的话可在记录页发起申诉。", t.Title, t.DoneVerb(), dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 	}
 }
