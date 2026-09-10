@@ -22,7 +22,7 @@
   {{else}}<h2>{{if eq .T.Kind "reply"}}评论文案{{else}}推文文案{{end}}{{if gt (len .T.Contents) 1}} <span class="muted small">共 {{len .T.Contents}} 个变体，接单时分配一条，发任一条都算</span>{{end}}</h2>
   {{if and (eq .T.MatchMode "any") (not .T.Contents)}}<p class="muted">自由发挥：在目标推文下方写一条至少 {{.T.MinLen}} 个字的评论即可。</p>{{end}}
   {{range $i, $c := .T.Contents}}<pre class="tweet" id="c{{$i}}">{{$c}}</pre><div class="small muted">变体 {{inc $i}} <button type="button" class="copy" data-copy-from="c{{$i}}">复制</button></div>{{end}}
-  <div class="hint" style="margin-top:10px">⚠ 用自己的账号发布商业内容，请阅读文案再接。同一文案被大量账号发布可能触发 X 的重复内容与平台操纵规则，风险自负。</div>{{end}}
+  <div class="hint" style="margin-top:10px"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>用自己的账号发布商业内容，请阅读文案再接。同一文案被大量账号发布可能触发 X 的重复内容与平台操纵规则，风险自负。</div>{{end}}
 </section>
 
 {{if .IsOwner}}
@@ -31,7 +31,7 @@
   <div class="prog" aria-label="名额进度"><span class="p-done" style="width:{{pct .T.DoneCount .T.SlotsTotal}}%"></span><span class="p-pay" style="width:{{pct .PayDueN .T.SlotsTotal}}%"></span><span class="p-act" style="width:{{pct .ActiveN .T.SlotsTotal}}%"></span></div>
   <div class="legend"><span><i class="sw p-done"></i>已完成 {{.T.DoneCount}}</span><span><i class="sw p-pay"></i>待你付款 {{.PayDueN}}</span><span><i class="sw p-act"></i>进行中 {{.ActiveN}}</span><span><i class="sw p-free"></i>剩余名额 {{.T.Left}}</span></div>
   {{if .Pending}}<div class="grp need"><div class="grp-h">需要你处理 <span class="badge">{{len .Pending}}</span></div>
-    {{range .Pending}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if eq .Status "checking"}}<form method="post" action="{{.Path}}/check" class="row" style="gap:6px" data-confirm="确认对方已{{$.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn sm">✅ 已{{$.T.DoneVerb}}</button></form><a class="btn sec sm" href="{{.Path}}#check">没看到</a>{{else}}{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt (payAmt . $.T)}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}{{end}}</div>{{end}}
+    {{range .Pending}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if eq .Status "checking"}}<form method="post" action="{{.Path}}/check" class="row" style="gap:6px" data-confirm="确认对方已{{$.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn sm"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已{{$.T.DoneVerb}}</button></form><a class="btn sec sm" href="{{.Path}}#check">没看到</a>{{else}}{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt (payAmt . $.T)}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}{{end}}</div>{{end}}
   </div>{{end}}
   {{if .Active}}<div class="grp"><div class="grp-h">进行中 <span class="muted">{{len .Active}}</span></div>
     {{range .Active}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
@@ -53,7 +53,7 @@
   {{if .T.PausedByFreeze}}<div class="notice warn">因你有逾期未付记录，任务被自动暂停；付清后自动恢复。</div>{{end}}
 </section>
 {{end}}
-<section class="card">
+<section class="card flat">
   <h2 style="margin-top:0">发布方</h2>
   {{if .Owner}}<div class="row between">{{template "userline" .Owner}}<span class="tier">{{.OwnerTier.Name}}</span></div>
   <div class="stats" style="margin-top:10px"><div><b class="num">{{.OwnerStats.PaidGateway}}</b><span>网关核销付款</span></div><div><b class="num">{{.OwnerStats.Paid}}</b><span>已付款总数</span></div><div><b class="num" {{if .OwnerStats.Overdue}}style="color:var(--bad)"{{end}}>{{.OwnerStats.Overdue}}</b><span>逾期次数</span></div><div><b class="num">{{avgDur .OwnerStats.AvgPayMs}}</b><span>平均付款用时</span></div><div><b class="num">{{fdate .Owner.CreatedAt}}</b><span>注册</span></div></div>
@@ -62,7 +62,7 @@
   {{if .Owner.CertPaidAt}}<div class="small muted">✅ 已完成认证付款（付款账户已锚定）</div>{{end}}{{end}}
 </section>
 
-<section class="card">
+<section class="card flat">
   <div class="sec-h"><h2>接单动态</h2><span class="eyebrow">{{len .Public}} 条</span></div>
   {{if .Public}}<div class="pubs">{{range .Public}}<div class="pub"><span class="who"><a href="/u/{{.Worker}}">@{{.Worker}}</a></span><span class="st {{stClass .Status}}">{{if $.IsOwner}}{{subStatus .Status}}{{else}}{{pubStatus .Status}}{{end}}</span>{{if and $.IsOwner .SelfDeal}}<span class="st bad" title="同 IP 段或同付款账户">疑似自导自演</span>{{end}}{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}{{if $.IsOwner}}<a class="small" href="/s/{{.Code}}"><code>{{.Code}}</code></a>{{end}}<span class="muted tiny">{{ago .At}}</span></div>{{end}}</div>{{else}}<p class="muted small">还没有人接单，第一个来。</p>{{end}}
 </section>

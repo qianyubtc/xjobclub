@@ -8,7 +8,7 @@
   {{if .Locked}}<div class="notice warn">你有超过 24 小时未处理的待确认到账记录，暂时不能接单或发布。请在下方确认或申诉。</div>{{end}}
   {{if not .Pay}}<div class="notice warn">还没有绑定收款方式，接单和发布都需要。<a href="/me/pay">去绑定</a></div>{{end}}
   {{if and .Pay .CertNeeded}}<div class="notice">首次发布任务前需完成一次 {{.Cfg.CertFeeAmount}} U 认证付款（锚定你的付款账户）。<a href="/me/cert">去认证</a></div>{{end}}
-  <div class="stats"><div><b class="num">{{.Stats.PaidGateway}}</b><span>网关核销付款</span></div><div><b class="num">{{.Stats.Paid}}</b><span>已付款</span></div><div><b class="num">{{.Stats.Overdue}}</b><span>逾期</span></div><div><b class="num">{{.WStats.Done}}</b><span>完成接单</span></div><div><b class="num">{{amt .WStats.EarnedE8}}</b><span>累计收入 U</span></div><div><b class="num">{{.U.JuryScore}}</b><span>陪审分</span></div></div>
+  <div class="stats six"><div><b class="num">{{.Stats.PaidGateway}}</b><span>网关核销付款</span></div><div><b class="num">{{.Stats.Paid}}</b><span>已付款</span></div><div><b class="num">{{.Stats.Overdue}}</b><span>逾期</span></div><div><b class="num">{{.WStats.Done}}</b><span>完成接单</span></div><div><b class="num">{{amt .WStats.EarnedE8}}</b><span>累计收入 U</span></div><div><b class="num">{{.U.JuryScore}}</b><span>陪审分</span></div></div>
 </section>
 <div class="tabs">
   <a href="/me" {{if eq .Tab ""}}class="on"{{end}}>待办{{if .Todo}} <span class="badge">{{.Todo}}</span>{{end}}</a>

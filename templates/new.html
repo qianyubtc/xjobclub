@@ -10,6 +10,7 @@
     {{if .F.EditCode}}<input type="hidden" name="edit" value="{{.F.EditCode}}">{{end}}
     <label for="title">任务标题（只用于列表展示，≤40 字）</label>
     <input id="title" name="title" maxlength="40" value="{{.F.Title}}" required placeholder="例：帮我们转发新产品发布">
+    <h3 class="fs">内容</h3>
     {{if .F.EditCode}}<input type="hidden" name="ttype" value="{{.F.TType}}">{{else}}
     <label>任务类型</label>
     <div class="seg seg4" id="ttypeSeg">{{range $k := .Kinds}}<label {{if eq $.F.TType $k.V}}class="on"{{end}}><input type="radio" name="ttype" value="{{$k.V}}" {{if eq $.F.TType $k.V}}checked{{end}}>{{$k.N}}<small>{{$k.D}}</small></label>{{end}}</div>
@@ -27,6 +28,7 @@
     </div>
     {{if not .F.EditCode}}
     <div class="grid2">
+      <h3 class="fs" style="grid-column:1/-1">计价与名额</h3>
       <div id="priceWrap"><label>计价方式</label>
         <div class="seg" id="priceSeg"><label id="pmFixed" {{if ne .F.PriceMode "cpm"}}class="on"{{end}}><input type="radio" name="price_mode" value="fixed" {{if ne .F.PriceMode "cpm"}}checked{{end}}>固定单价<small>每条一口价</small></label><label id="pmCpm" {{if eq .F.PriceMode "cpm"}}class="on"{{end}}><input type="radio" name="price_mode" value="cpm" {{if eq .F.PriceMode "cpm"}}checked{{end}}>按浏览量<small>看推文浏览量结算</small></label></div>
         <div id="fixedWrap" {{if eq .F.PriceMode "cpm"}}hidden{{end}}><label for="reward" class="small">单价（每条完成支付的 U）</label><input id="reward" name="reward" inputmode="decimal" value="{{.F.Reward}}" placeholder="例：2"><div class="hint">{{amt .Cfg.MinRewardE8}}–{{amt .Cfg.MaxRewardE8}} U</div></div>
@@ -38,12 +40,14 @@
         <div class="seg" id="kindSeg"><label id="kindOne" {{if eq .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="one" {{if eq .F.Slots "1"}}checked{{end}}>单人任务<small>只需 1 个人发</small></label><label id="kindMany" {{if ne .F.Slots "1"}}class="on"{{end}}><input type="radio" name="kind" value="many" {{if ne .F.Slots "1"}}checked{{end}}>多人任务<small>N 个人各发一条</small></label></div>
         <div id="slotsWrap" {{if eq .F.Slots "1"}}hidden{{end}}><label for="slots" class="small">需要多少人（名额）</label><input id="slots" name="slots" inputmode="numeric" value="{{.F.Slots}}" required></div>
         <div class="hint">每个人在同一个任务上只能完成一次；单价 × 名额不能超过可用敞口</div></div>
+      <h3 class="fs" style="grid-column:1/-1">时间</h3>
       <div><label for="claim_ttl">接单时限</label><select id="claim_ttl" name="claim_ttl">{{range $v := .TTLs}}<option value="{{$v}}" {{if eq (print $v) $.F.ClaimTTL}}selected{{end}}>{{durMin $v}}</option>{{end}}</select><div class="hint">接单后多久内必须回填链接</div></div>
       <div id="retWrap"><label for="retention">留存时长</label><select id="retention" name="retention">{{range $v := .Cfg.RetentionOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.Retention}}selected{{end}}>{{if eq $v 0}}无（发完立刻可付，对方也可立刻删）{{else}}{{dur $v}}{{end}}</option>{{end}}</select></div>
       <div><label for="pay_window">付款时限</label><select id="pay_window" name="pay_window">{{range $v := .Cfg.PayWindowOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.PayWindow}}selected{{end}}>{{dur $v}}</option>{{end}}</select><div class="hint">越短越吸引接单方；逾期会被冻结</div></div>
       <div><label for="deadline">任务截止（天）</label><input id="deadline" name="deadline" inputmode="numeric" value="{{.F.Deadline}}"><div class="hint">1–{{.Cfg.DeadlineMax}} 天，到期停止接单</div></div>
-      <div><label for="min_days">接单要求：X 账号注册满（天）</label><input id="min_days" name="min_days" inputmode="numeric" value="{{.F.MinDays}}"><div class="hint">0 = 不限；按 X 数字 ID 估算，挡新注册小号</div></div>
-      <div><label for="min_followers">接单要求：粉丝数 ≥</label><input id="min_followers" name="min_followers" inputmode="numeric" value="{{.F.MinFans}}"><div class="hint">0 = 不限；粉丝数取自 X 公开接口，接单时校验，每天更新</div></div>
+      <h3 class="fs" style="grid-column:1/-1">接单要求</h3>
+      <div><label for="min_days">X 账号注册满（天）</label><input id="min_days" name="min_days" inputmode="numeric" value="{{.F.MinDays}}"><div class="hint">0 = 不限；按 X 数字 ID 估算，挡新注册小号</div></div>
+      <div><label for="min_followers">粉丝数 ≥</label><input id="min_followers" name="min_followers" inputmode="numeric" value="{{.F.MinFans}}"><div class="hint">0 = 不限；粉丝数取自 X 公开接口，接单时校验，每天更新</div></div>
     </div>
     {{end}}
     <button class="btn" type="submit" style="margin-top:18px" {{if and .Block (not .F.EditCode)}}disabled{{end}}>{{if .F.EditCode}}保存{{else}}发布{{end}}</button>

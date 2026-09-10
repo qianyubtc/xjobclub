@@ -55,7 +55,7 @@
   {{if .R.MyVote}}<div class="notice {{if eq .R.MyVote 1}}ok{{else}}warn{{end}}">你投了「{{if eq .R.MyVote 1}}没问题{{else}}有问题{{end}}」{{if .R.MyReason}}：{{.R.MyReason}}{{end}} · 当前 {{.R.Pass}} 通过 / {{.R.Fail}} 反对</div>
   {{else if .R.CanVote}}
   <form method="post" action="/review/{{.T.Code}}/vote" class="voteform"><input type="hidden" name="next" value="{{.Next}}">
-    <div class="btns"><button class="btn" name="vote" value="pass">✅ 没问题，可以上线</button><button class="btn sec" name="vote" value="fail">⚠️ 有问题</button></div>
+    <div class="btns"><button class="btn" name="vote" value="pass"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>没问题，可以上线</button><button class="btn sec" name="vote" value="fail"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg>有问题</button></div>
     <details class="fold" style="margin-top:8px"><summary>投「有问题」时说明原因（可选）</summary><select name="reason"><option value="">不说明</option>{{range .Reasons}}<option>{{.}}</option>{{end}}</select><input name="text" maxlength="200" placeholder="补充说明（可选）" style="margin-top:6px"></details>
   </form>
   {{else}}<div class="notice">{{.R.Why}}</div>{{end}}

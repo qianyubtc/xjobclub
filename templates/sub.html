@@ -31,14 +31,14 @@
   <h2 style="margin-top:0">① 在目标推文下评论</h2>
   <p class="small">目标：<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}}<span class="muted"> · {{.T.TargetText}}</span>{{end}}</p>
   {{if .Content}}<pre class="tweet" id="content">{{.Content}}</pre>{{else}}<div class="notice">自由发挥：至少 {{.T.MinLen}} 个字，写你自己的话。</div>{{end}}
-  <div class="btns"><a class="btn" id="intentReply" href="{{.IntentURL}}" target="_blank" rel="noopener">💬 一键去 X 评论</a>{{if .Content}}<button type="button" class="btn sec copy" data-copy-from="content">复制文案</button>{{end}}<a class="btn sec" href="{{.T.TargetURL}}" target="_blank" rel="noopener">打开目标推文</a></div>
+  <div class="btns"><a class="btn" id="intentReply" href="{{.IntentURL}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-reply"/></svg>一键去 X 评论</a>{{if .Content}}<button type="button" class="btn sec copy" data-copy-from="content">复制文案</button>{{end}}<a class="btn sec" href="{{.T.TargetURL}}" target="_blank" rel="noopener">打开目标推文</a></div>
   <div class="hint">{{if eq .T.MatchMode "any"}}评论内容不限，至少 {{.T.MinLen}} 个字。{{else if eq .T.MatchMode "contains"}}可以加自己的话，但文案要完整保留。{{else}}评论须与文案一致（可复制粘贴）。{{end}}必须是对目标推文的直接回复（不是回复别人的评论），账号需公开。发完请勿删除{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}{{end}}。</div>
   <h2>② 把你的评论链接贴回来</h2>
   <div class="hint">在 X 点开你自己那条评论，复制地址栏链接（形如 x.com/你的名字/status/…）。</div>
   {{else}}
   <h2 style="margin-top:0">① 发这条推文</h2>
   <pre class="tweet" id="content">{{.Content}}</pre>
-  <div class="btns"><a class="btn" id="intent" href="{{.IntentURL}}" target="_blank" rel="noopener">🐦 一键去 X 发帖</a><button type="button" class="btn sec copy" data-copy-from="content">复制文案</button></div>
+  <div class="btns"><a class="btn" id="intent" href="{{.IntentURL}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-post"/></svg>一键去 X 发帖</a><button type="button" class="btn sec copy" data-copy-from="content">复制文案</button></div>
   <a id="intentAlt" href="{{.IntentURL}}" target="_blank" rel="noopener" hidden class="hint altlink">没拉起 X App？点这里用网页版发 →</a>
   <div class="hint">{{if eq .T.MatchMode "contains"}}可以加自己的话，但文案要完整保留。{{else}}正文须与文案一致（可复制粘贴）。{{end}}必须是原帖（不能是回复），账号需公开。发完请勿删除{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}{{end}}。</div>
   <h2>② 把推文链接贴回来</h2>
@@ -52,7 +52,7 @@
 <section class="card">
   <h2 style="margin-top:0">① 去{{.T.DoneVerb}}</h2>
   <p class="small">目标：<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}}<span class="muted"> · {{.T.TargetText}}</span>{{end}}</p>
-  <div class="btns"><a class="btn" href="{{.TargetIntent}}" target="_blank" rel="noopener">{{if eq .T.Kind "like"}}❤️ 一键去点赞{{else}}🔁 一键去转发{{end}}</a><a class="btn sec" href="{{.T.TargetURL}}" target="_blank" rel="noopener">打开目标推文</a></div>
+  <div class="btns"><a class="btn" href="{{.TargetIntent}}" target="_blank" rel="noopener">{{if eq .T.Kind "like"}}<svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg>一键去点赞{{else}}<svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg>一键去转发{{end}}</a><a class="btn sec" href="{{.T.TargetURL}}" target="_blank" rel="noopener">打开目标推文</a></div>
   <div class="hint">{{if eq .T.Kind "like"}}用注册时的 X 账号{{with .Worker}} <b>@{{.Handle}}</b>{{end}} 点赞。发布方会在自己推文的点赞列表里核对。{{else}}用{{with .Worker}} <b>@{{.Handle}}</b>{{end}} 直接转发（不是引用）。系统会从你的公开时间线自动检测，检测不到则交发布方核对。{{end}}任务期内请勿取消。</div>
   <h2>② 提交核对</h2>
   <form method="post" action="/s/{{.X.Code}}/done"><button class="btn">我已{{.T.DoneVerb}}，提交核对</button></form>
@@ -60,7 +60,7 @@
 </section>
 {{else if eq .X.Status "checking"}}<section class="card"><p><span class="spin"></span>已提交，等发布方核对。{{ftime .CheckDue}} 前不处理视为通过，通过后进入待付款。</p></section>
 {{else if eq .X.Status "submitted"}}<section class="card"><p><span class="spin"></span>正在验证推文，通常几秒内完成，本页会自动刷新。</p></section>
-{{else if eq .X.Status "verified"}}<section class="card"><p>✅ 验证通过。请保留推文至 <b>{{ftime .X.RecheckDueAt}}</b>，复检通过后进入待付款；期间删帖或改文会作废。</p></section>
+{{else if eq .X.Status "verified"}}<section class="card"><p><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>验证通过。请保留推文至 <b>{{ftime .X.RecheckDueAt}}</b>，复检通过后进入待付款；期间删帖或改文会作废。</p></section>
 {{else if eq .X.Status "payable"}}<section class="card"><p>等待发布方付款，截止 <b>{{ftime .X.PayDeadlineAt}}</b>。{{if .Payee.Gateway}}你已绑定自动到账，对方付款后会自动完成。{{else}}对方付款后会登记订单号，你需要在币安 App 核对后点「已收到」。{{end}}</p></section>
 {{else if eq .X.Status "overdue"}}<section class="card"><div class="notice bad">发布方逾期未付（{{ago .X.OverdueAt}}），其账号已冻结。</div>
   {{range .DisputeOK}}{{if eq . "A"}}<form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="A"><label>举报未付款：补充说明</label><textarea name="text" required minlength="5" placeholder="例：已逾期 N 小时，对方无回应"></textarea><button class="btn danger" style="margin-top:8px">举报未付款</button><div class="hint">举报后对方有 {{dur $.Cfg.GraceReportH}} 宽限，仍不付则核实上黑名单；付清会自动结案。</div></form>{{end}}{{end}}
@@ -70,14 +70,14 @@
   <h2 style="margin-top:0">请核对到账</h2>
   {{if .X.UnderpaidE8}}<div class="notice warn">网关确认到账 <b>{{amt .X.UnderpaidE8}} U</b>，少于应付 {{amt .Due}} U。</div>
     {{if .X.TopupMarkedAt}}<p>发布方已登记补差{{if .X.TopupOrderID}}，币安订单 <code>{{.X.TopupOrderID}}</code>{{end}}（{{ftime .X.TopupMarkedAt}}）。请到币安 App 核对补差是否到账。</p>
-      <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到补差、合计 {{amt .Due}} U？确认后记录按全额完成。"><button class="btn">✅ 已收到补差，按全额完成</button></form>
+      <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到补差、合计 {{amt .Due}} U？确认后记录按全额完成。"><button class="btn"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已收到补差，按全额完成</button></form>
       <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">没收到补差，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
       {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>补差没到账？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button></form></details>{{end}}{{end}}
     {{else if .X.TopupRequested}}<div class="notice">已要求发布方补差 {{amt .TopupE8}} U（{{ago .X.TopupRequested}}），等待对方付款；期间不影响你接单。补差到账会自动完成，发布方手动登记后这里会出现确认按钮。</div>
       <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">不等了，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
     {{else}}<div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>{{end}}
   {{else}}<p>发布方于 {{ftime .X.MarkedPaidAt}} 标记已付{{if .X.MarkedOrderID}}，币安订单 <code>{{.X.MarkedOrderID}}</code>。请打开币安 App → 支付 → 交易记录核对。{{else if .X.MarkedNote}}：{{.X.MarkedNote}}。这是你自定义的收款方式，平台不核验，请自行到对应钱包 / 账户核对到账后再确认。{{else}}。请打开币安 App → 支付 → 交易记录核对。{{end}}</p>
-    <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .Due}} U？确认后记录完成，不可撤销。"><button class="btn">✅ 已收到，完成</button></form>
+    <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .Due}} U？确认后记录完成，不可撤销。"><button class="btn"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已收到，完成</button></form>
     {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉即解除你的锁定。如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
     <div class="hint" style="margin-top:8px">标记后 24 小时内未处理，你将暂时不能接新任务。</div>{{end}}
 </section>
@@ -91,7 +91,7 @@
 <section class="card" id="check">
   <h2 style="margin-top:0">请核对：{{with .Worker}}@{{.Handle}}{{end}} 是否已{{.T.DoneVerb}}</h2>
   <p class="small">打开<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">你的目标推文 ↗</a>，{{if eq .T.Kind "like"}}点开点赞数看名单{{else}}点开转发数看名单{{end}}，找 <b>{{with .Worker}}@{{.Handle}}{{end}}</b>。{{ftime .CheckDue}} 前不处理视为通过。</p>
-  <form method="post" action="/s/{{.X.Code}}/check" data-confirm="确认{{with .Worker}} @{{.Handle}}{{end}} 已{{.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn">✅ 已{{.T.DoneVerb}}，确认</button></form>
+  <form method="post" action="/s/{{.X.Code}}/check" data-confirm="确认{{with .Worker}} @{{.Handle}}{{end}} 已{{.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已{{.T.DoneVerb}}，确认</button></form>
   <details class="fold" style="margin-top:10px"><summary>没看到 TA 的{{.T.DoneVerb}}</summary><form method="post" action="/s/{{.X.Code}}/check"><input type="hidden" name="action" value="no"><label>给对方的说明（可选）</label><input name="note" maxlength="200" placeholder="例：点赞名单里没有你"><button class="btn sec sm" style="margin-top:8px">退回重做{{if .X.CheckRejects}}（第二次退回将作废并释放名额）{{end}}</button></form></details>
 </section>
 {{end}}
@@ -148,7 +148,7 @@
 
 {{if .Disputes}}<section class="card"><h2 style="margin-top:0">申诉</h2>{{range .Disputes}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · <span class="st {{stClass .Status}}">{{dstatus .Status}}</span>{{if .Resolution}} · {{.ResolutionNote}}{{end}}</div>{{end}}</section>{{end}}
 
-<section class="card"><h2 style="margin-top:0">时间线</h2><ul class="tl">
+<section class="card flat"><h2 style="margin-top:0">时间线</h2><ul class="tl">
   <li><span class="t">{{ftime .X.ClaimedAt}}</span>接单，锁定名额</li>
   {{range .Timeline}}{{$t := auditText .Action}}{{if $t}}<li><span class="t">{{ftime .CreatedAt}}</span>{{$t}}{{if .ActorID}} · {{with index $.Actors .ActorID}}@{{.Handle}}{{end}}{{end}}{{if and .Meta $.IsAdmin}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}{{end}}
 </ul></section>
