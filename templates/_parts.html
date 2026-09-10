@@ -11,15 +11,12 @@
   <td><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></td>
   <td class="small muted">{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</td>
 </tr>{{end}}
-{{define "taskcard"}}<a class="taskcard" href="{{.T.Path}}">
-  <div class="row between"><div class="tt">{{.T.Title}}</div><div class="reward">{{amt .T.RewardE8}} <small style="font-size:12px;font-weight:500">U / 条</small></div></div>
-  <div class="meta">
-    <span>剩余名额 <b class="num">{{.T.Left}}</b>/{{.T.SlotsTotal}}</span>
-    <span>留存 {{dur .T.RetentionH}}</span>
-    <span>付款时限 {{dur .T.PayWindowH}}</span>
-    <span>截止 {{fdate .T.DeadlineAt}}</span>
-    {{if .T.MinAccountDays}}<span>要求 X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}
-    {{if .Owner}}<span>发布方 @{{.Owner.Handle}} · 网关核销 {{.Stats.PaidGateway}} 单{{if .Stats.Overdue}} · 逾期 {{.Stats.Overdue}}{{end}}{{if .Stats.Frozen}} · <b style="color:var(--bad)">冻结中</b>{{end}}</span>{{end}}
+{{define "taskcard"}}<a class="ticket" href="{{.T.Path}}">
+  <div class="stub"><div class="r">{{amt .T.RewardE8}}</div><div class="u">U / 条</div><div class="left">剩 {{.T.Left}} 单</div></div>
+  <div class="body">
+    <div class="tt">{{.T.Title}}</div>
+    <div class="meta">{{if .Owner}}<span>@{{.Owner.Handle}}</span><span>网关核销 <b>{{.Stats.PaidGateway}}</b> 单</span>{{if .Stats.Overdue}}<span style="color:var(--red)">逾期 {{.Stats.Overdue}}</span>{{end}}{{end}}<span>截止 {{fdate .T.DeadlineAt}}</span></div>
+    <div class="chips"><span class="chip">留存 {{dur .T.RetentionH}}</span><span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
   </div>
 </a>{{end}}
 {{define "disputebody"}}

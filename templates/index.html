@@ -1,11 +1,20 @@
-{{define "title"}}{{.SiteTitle}} · X 发帖任务大厅{{end}}
+{{define "title"}}{{.SiteTitle}} · 发一条推，赚一笔 U{{end}}
 {{define "content"}}
 <div class="hero">
-  <h1>发一条推，赚一笔 U。</h1>
-  <p>发布方写好推文并出价，接单方用自己的 X 账号发出，平台自动核验推文、盯着留存与付款。钱由发布方<b>直接</b>转给接单方，平台不经手。赖账者公示在黑名单榜。</p>
-  <div class="stats"><div><b class="num">{{.Counts.Open}}</b><span>在线任务</span></div><div><b class="num">{{.Counts.Paid}}</b><span>已完成付款</span></div><div><b class="num">{{amt .PaidSum}}</b><span>累计支付 U</span></div><div><b class="num">{{.Counts.Users}}</b><span>注册用户</span></div></div>
-  {{if not .Me}}<div class="btns" style="margin-top:0"><a class="btn" href="/register">用 X 账号注册</a><a class="btn sec" href="/rules">先看规则</a></div>{{end}}
+  <div>
+    <span class="eyebrow">X 发帖任务 · 平台不托管资金</span>
+    <h1>发一条推，<span class="hl">赚一笔 U</span>。</h1>
+    <p>发布方写好推文、出好价；你用自己的 X 账号发出去，回填链接自动验证；钱由发布方<b>直接</b>转到你的币安账户。赖账的，上榜。</p>
+    {{if not .Me}}<div class="btns" style="margin-top:6px"><a class="btn" href="/register">用 X 账号注册</a><a class="btn sec" href="/rules">先看规则</a></div>{{else}}<div class="btns" style="margin-top:6px"><a class="btn" href="/new">发一单</a><a class="btn sec" href="/me">我的待办{{if .Todo}}（{{.Todo}}）{{end}}</a></div>{{end}}
+  </div>
+  <div class="sticker">
+    <span class="eyebrow">今日看板</span>
+    <div class="big">{{.Counts.Open}} <small style="font:600 12px var(--mono)">单可接</small></div>
+    <ul><li>累计完成 {{.Counts.Paid}} 单</li><li>已支付 {{amt .PaidSum}} U</li><li>{{.Counts.Users}} 位用户</li></ul>
+  </div>
 </div>
+<div class="ticker" aria-hidden="true"><div class="rail">{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}</div></div>
+<div class="sec-h"><h2>接单大厅</h2><span class="eyebrow">{{.Total}} 单在线</span></div>
 <form class="filters" method="get" action="/">
   <div><label>单价 ≥</label><input name="min" value="{{.MinU}}" inputmode="decimal" placeholder="U"></div>
   <div><label>留存 ≤</label><select name="ret"><option value="">不限</option><option value="0" {{if eq .Retent "0"}}selected{{end}}>无留存</option><option value="24" {{if eq .Retent "24"}}selected{{end}}>1 天</option><option value="72" {{if eq .Retent "72"}}selected{{end}}>3 天</option></select></div>
@@ -14,5 +23,5 @@
 </form>
 {{if .Tasks}}{{range .Tasks}}{{template "taskcard" (dict "T" . "Owner" (index $.Owners .OwnerID) "Stats" (index $.Stats .OwnerID))}}{{end}}
 <div class="pager">{{if gt .Page 1}}<a href="?page={{sub (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">上一页</a>{{end}}{{if gt .Pages 1}}<span>{{.Page}} / {{.Pages}}</span>{{end}}{{if lt .Page .Pages}}<a href="?page={{add (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">下一页</a>{{end}}</div>
-{{else}}<section class="card"><p class="muted">暂时没有可接的任务。{{if .Me}}<a href="/new">发布一个？</a>{{end}}</p></section>{{end}}
+{{else}}<div class="empty"><div class="big">暂时没有单子</div><p class="muted">{{if .Me}}要不你来发第一单？<a href="/new">发布任务</a>{{else}}<a href="/register">注册</a>后可以自己发一单。{{end}}</p></div>{{end}}
 {{end}}

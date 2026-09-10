@@ -121,6 +121,13 @@ type indexPage struct {
 	Sort    string
 	Counts  struct{ Users, Open, Paid int64 }
 	PaidSum int64
+	Recent  []recentDone
+}
+
+type recentDone struct {
+	Handle   string
+	AmountE8 int64
+	Ago      string
 }
 
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +166,17 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	p.Counts.Open = a.st.count(`SELECT COUNT(*) FROM tasks WHERE status='open' AND deadline_at>?`, ms())
 	p.Counts.Paid = a.st.count(`SELECT COUNT(*) FROM submissions WHERE status='paid'`)
 	p.PaidSum = a.st.sum(`SELECT SUM(paid_amount_e8) FROM submissions WHERE status='paid'`)
+	if rows, err := a.st.db.Query(`SELECT u.handle, x.paid_amount_e8, x.confirmed_at FROM submissions x JOIN users u ON u.id=x.worker_id WHERE x.status='paid' ORDER BY x.confirmed_at DESC LIMIT 12`); err == nil {
+		for rows.Next() {
+			var r recentDone
+			var at int64
+			if rows.Scan(&r.Handle, &r.AmountE8, &at) == nil {
+				r.Ago = ago(at)
+				p.Recent = append(p.Recent, r)
+			}
+		}
+		rows.Close()
+	}
 	a.render(w, http.StatusOK, "index", p)
 }
 

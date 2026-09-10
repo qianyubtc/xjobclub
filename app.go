@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"html/template"
 	"log"
@@ -32,6 +34,7 @@ type App struct {
 	gwc      *bpaygate.Client // nil = 未配置网关
 	origin   string
 	fetchSem chan struct{} // 推文抓取并发闸
+	cssVer   string        // 静态样式内容哈希，做缓存穿透
 
 	stop      chan struct{}
 	wg        sync.WaitGroup
@@ -58,6 +61,7 @@ type Base struct {
 	Desc      string
 	Gateway   bool // 网关是否配置
 	Now       int64
+	CSSVer    string
 }
 
 var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee"}
@@ -85,6 +89,10 @@ func newApp(cfg *Config) (*App, error) {
 	}
 	if cfg.BPGURL != "" {
 		a.gwc = bpaygate.New(cfg.BPGURL, cfg.BPGKey)
+	}
+	if b, err := staticFS.ReadFile("static/app.css"); err == nil {
+		sum := sha1.Sum(b)
+		a.cssVer = hex.EncodeToString(sum[:4])
 	}
 	if err := a.loadTemplates(); err != nil {
 		st.Close()
@@ -278,7 +286,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
+	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
 	if r.URL.Path != "/bpg/notify" {
 		limit := int64(64 << 10)
 		if strings.HasPrefix(r.URL.Path, "/d/") && strings.HasSuffix(r.URL.Path, "/message") {
@@ -312,7 +320,7 @@ func (a *App) sameOrigin(r *http.Request) bool {
 
 func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 	b := Base{SiteTitle: a.cfg.SiteTitle, BaseURL: a.cfg.BaseURL, RepoURL: a.cfg.RepoURL, AuthorX: a.cfg.AuthorX, IsMobile: isMobile(r), InApp: inAppBrowser(r.UserAgent()),
-		Path: r.URL.Path, Gateway: a.gwc != nil, Now: ms()}
+		Path: r.URL.Path, Gateway: a.gwc != nil, Now: ms(), CSSVer: a.cssVer}
 	b.Me = a.currentUser(r)
 	if b.Me != nil {
 		b.MeID = b.Me.ID
