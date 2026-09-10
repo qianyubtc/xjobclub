@@ -78,6 +78,7 @@ type gwOrder struct {
 
 type gwMock struct {
 	mu       sync.Mutex
+	sub      bool // 减尾数模式：pay_amount = base - 尾数
 	key      string
 	orders   map[string]*gwOrder
 	byMid    map[string]*gwOrder
@@ -110,6 +111,10 @@ func newGW(key string) *gwMock {
 			PayAmount: req.Amount + "01", NoteCode: "ABC123", ExpiresAt: ms() + req.Timeout*1000, CallbackURL: req.CallbackURL}
 		if !strings.Contains(req.Amount, ".") {
 			o.PayAmount = req.Amount + ".0001"
+		}
+		if g.sub {
+			base, _ := parseAmountE8(req.Amount, 8)
+			o.PayAmount = fmtE8(base - 720000) // 例：0.1 → 0.0928
 		}
 		if o.AccountID == "" {
 			o.AccountID = "default"
@@ -199,7 +204,8 @@ func (g *gwMock) pay(t *testing.T, mid, payer, amount string) {
 	o.Status, o.ActualAmount, o.MatchedBy, o.BinanceOrderID, o.PayerID, o.PaidAt = "paid", amount, "amount", "452021922068888888", payer, ms()
 	base, _ := parseAmountE8(o.BaseAmount, 8)
 	act, _ := parseAmountE8(amount, 8)
-	if act < base {
+	exact, _ := parseAmountE8(o.PayAmount, 8)
+	if act != exact && act < base { // 与网关一致：唯一金额精确命中即 paid；备注/回填命中但不足基础金额才 underpaid
 		o.Status, o.MatchedBy = "underpaid", "note"
 	}
 	body, _ := json.Marshal(map[string]any{"event": o.Status, "order_id": o.OrderID, "account_id": o.AccountID, "merchant_order_id": o.MerchantOrderID, "status": o.Status, "currency": o.Currency, "base_amount": o.BaseAmount,
@@ -1061,5 +1067,67 @@ func TestStaleHandleProfilePath(t *testing.T) {
 	}
 	if resp, body := old.get("/u/dupname"); resp.StatusCode != 200 || !strings.Contains(body, "9802") {
 		t.Fatalf("handle profile should be the new owner: %d", resp.StatusCode)
+	}
+}
+
+// ---- 减尾数唯一金额：按面板金额付款即足额（线上真实踩到的 bug） ----
+
+func TestSubModeUniqueAmountIsFullPayment(t *testing.T) {
+	e := newEnv(t, "")
+	e.gw.sub = true
+	alice, mia := e.browser("alice"), e.browser("mia")
+	au := alice.register("alice", "9901")
+	mia.register("mia", "9902")
+	alice.setUID("83001")
+	// 认证付款：应付 0.0928，按面板金额付 → 必须认证成功
+	alice.post("/me/cert", nil)
+	p, _ := e.a.st.ActiveCertPayment(au.ID)
+	if p.PayAmount != "0.0928" {
+		t.Fatalf("mock sub amount %s", p.PayAmount)
+	}
+	e.gw.pay(t, p.MerchantOrderID, "payer-A99", "")
+	au, _ = e.a.st.GetUserByID(au.ID)
+	if au.CertPaidAt == 0 {
+		t.Fatal("exact unique amount in sub mode must certify")
+	}
+	if e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%不足%'`, au.ID) != 0 {
+		t.Fatal("must not send 金额不足 notice")
+	}
+	// 任务付款：应付 1.9928 → 足额完成，不能判少付
+	mia.bindKey("83002")
+	task := alice.publish(taskForm(url.Values{"reward": {"2"}}))
+	x := mia.claim(task)
+	e.synd.add(mockTweet{ID: "99001", Text: task.Contents[0], UserID: "9902", Handle: "mia"})
+	x = mia.submitTweet(x, "99001")
+	alice.post("/s/"+x.Code+"/pay/order", nil)
+	tp, _ := e.a.st.ActivePayment(x.ID, "gateway")
+	e.gw.pay(t, tp.MerchantOrderID, "payer-A99", "")
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SPaid || x.UnderpaidE8 != 0 {
+		t.Fatalf("sub-mode full payment: status=%s underpaid=%d", x.Status, x.UnderpaidE8)
+	}
+}
+
+func TestRepairCertPayments(t *testing.T) {
+	e := newEnv(t, "")
+	alice := e.browser("alice")
+	au := alice.register("alice", "9951")
+	alice.setUID("84001")
+	alice.post("/me/cert", nil)
+	p, _ := e.a.st.ActiveCertPayment(au.ID)
+	e.gw.pay(t, p.MerchantOrderID, "payer-A995", "")
+	// 模拟旧版本留下的坏状态：付款单 paid 但用户未认证
+	e.a.st.db.Exec(`UPDATE users SET cert_paid_at=0 WHERE id=?`, au.ID)
+	e.a.repairCertPayments()
+	au, _ = e.a.st.GetUserByID(au.ID)
+	if au.CertPaidAt == 0 {
+		t.Fatal("repair should certify")
+	}
+	if e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%认证付款已确认%'`, au.ID) == 0 {
+		t.Fatal("repair should notify")
+	}
+	e.a.repairCertPayments() // 幂等
+	if e.a.st.count(`SELECT COUNT(*) FROM audit_log WHERE action='user.cert_paid' AND target_id=? AND meta LIKE '%repair%'`, au.ID) != 1 {
+		t.Fatal("repair must be idempotent")
 	}
 }

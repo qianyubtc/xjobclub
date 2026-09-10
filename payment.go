@@ -214,21 +214,22 @@ func (a *App) applyGateway(p *Payment, status, actual, payAmount, matchedBy, boi
 		if err != nil || !changed {
 			return
 		}
-		log.Printf("[info] 到账 %s %s by %s payer=%s", p.MerchantOrderID, fmtE8(e8), matchedBy, payerID)
-		a.onPaid(p, e8, payerID)
+		log.Printf("[info] 到账 %s %s status=%s by %s payer=%s", p.MerchantOrderID, fmtE8(e8), status, matchedBy, payerID)
+		a.onPaid(p, e8, payerID, status == "paid")
 	case "expired", "closed":
 		a.st.SettlePayment(p.ID, status, 0, "", "", "", 0, raw)
 	}
 }
 
-// onPaid 网关确认到账后推进业务。
-func (a *App) onPaid(p *Payment, actualE8 int64, payerID string) {
+// onPaid 网关确认到账后推进业务。full 以网关判定为准（status=paid）：唯一金额可能带减尾数（如 0.1 → 0.0928），
+// 实付按面板金额一分不差就是足额，不能拿实付与基础金额比较；只有网关报 underpaid 才是少付。
+func (a *App) onPaid(p *Payment, actualE8 int64, payerID string, full bool) {
 	if p.Kind == "cert" {
 		u, _ := a.st.GetUserByID(p.UserID)
 		if u == nil {
 			return
 		}
-		enough := actualE8 >= a.cfg.CertFeeE8
+		enough := full
 		if err := a.st.SetPayerID(u.ID, payerID, enough); errors.Is(err, ErrPayerTaken) {
 			a.st.Audit(0, "user.payer_conflict", "user", u.ID, map[string]any{"payer_id": payerID}, "")
 			a.notify(u.ID, "account", "认证付款的付款账户已被其他账号使用", "同一个币安账户只能认证一个平台账号，请联系管理员。", "/me/pay")
@@ -270,7 +271,7 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string) {
 	}
 	switch x.Status {
 	case SPayable, SOverdue, SAwait, SDisputed:
-		if total >= t.RewardE8 {
+		if full {
 			if ok, _ := a.st.SetPaid(x.ID, "gateway", total); ok {
 				a.afterPaid(x, t, 0, "gateway")
 			}
@@ -585,5 +586,39 @@ func (a *App) checkGatewayHealth() {
 			a.downgradePayee(p.UserID, p, "Key 失效："+msg)
 			a.notify(p.UserID, "account", "自动到账已停用", "币安只读 Key 连续检测失败："+msg+"。已切回手动确认，可重新绑定。", "/me/pay")
 		}
+	}
+}
+
+// repairCertPayments 启动时的幂等修复：网关已判定 paid 的认证付款却没拿到认证的用户（早期版本误把减尾数唯一金额当作金额不足），补上认证并通知。
+func (a *App) repairCertPayments() {
+	rows, err := a.st.db.Query(`SELECT p.id, p.user_id, p.paid_at, p.pay_amount, p.payer_id FROM payments p JOIN users u ON u.id=p.user_id WHERE p.kind='cert' AND p.status='paid' AND u.cert_paid_at=0`)
+	if err != nil {
+		return
+	}
+	type row struct {
+		id, uid, paidAt int64
+		amt, payer      string
+	}
+	var rs []row
+	for rows.Next() {
+		var r row
+		if rows.Scan(&r.id, &r.uid, &r.paidAt, &r.amt, &r.payer) == nil {
+			rs = append(rs, r)
+		}
+	}
+	rows.Close()
+	for _, r := range rs {
+		if r.paidAt == 0 {
+			r.paidAt = ms()
+		}
+		if r.payer != "" {
+			a.st.SetPayerID(r.uid, r.payer, false)
+		}
+		if _, err := a.st.db.Exec(`UPDATE users SET cert_paid_at=? WHERE id=? AND cert_paid_at=0`, r.paidAt, r.uid); err != nil {
+			continue
+		}
+		a.st.Audit(0, "user.cert_paid", "user", r.uid, map[string]any{"repair": true, "payment": r.id}, "")
+		a.notify(r.uid, "account", "认证付款已确认（此前的「金额不足」提示有误，抱歉）", "你按面板金额付的 "+r.amt+" U 已被网关确认，认证已生效，现在可以发布任务了。", "/new")
+		log.Printf("[info] 修复认证：用户 #%d 付款单 #%d", r.uid, r.id)
 	}
 }

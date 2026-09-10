@@ -15,6 +15,7 @@ func (a *App) startJobs() {
 		defer a.wg.Done()
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()
+		a.repairCertPayments()
 		a.runJobs()
 		for {
 			select {
