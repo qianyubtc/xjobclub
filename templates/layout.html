@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#FFD34D" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0F141C" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0D6EFD" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B1220" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-title" content="推了么">
 <title>{{template "title" .}}</title>
 <meta name="description" content="{{if .Desc}}{{.Desc}}{{else}}推了么：X 发帖任务撮合平台。发布方写好推文出价，接单方用自己的 X 账号发出，平台自动验证，钱由发布方直接转给接单方。{{end}}">
 {{if .NoIndex}}<meta name="robots" content="noindex">{{end}}
 <link rel="stylesheet" href="/static/app.css?v={{.CSSVer}}">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='14' fill='%23FFD34D' stroke='%2314171C' stroke-width='4'/%3E%3Ctext x='32' y='45' font-size='34' font-weight='900' text-anchor='middle' font-family='PingFang SC,Microsoft YaHei,sans-serif' fill='%2314171C'%3E推%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='14' fill='%230D6EFD' stroke='%2314171C' stroke-width='4'/%3E%3Ctext x='32' y='45' font-size='34' font-weight='900' text-anchor='middle' font-family='PingFang SC,Microsoft YaHei,sans-serif' fill='%23FFFFFF'%3E推%3C/text%3E%3C/svg%3E">
 </head>
 <body>
 <nav class="top"><div class="in">
   <a class="brand" href="/"><span class="brand-mark">推</span>推了么<small>发推·接单·到账</small></a>
-  <div class="right">{{if .Me}}<a href="/me/notifications" aria-label="通知">🔔{{if .Unread}}<span class="badge">{{.Unread}}</span>{{end}}</a><a href="/me">{{template "avatar" .Me}}</a>{{else}}<a href="/login">登录</a><a href="/register" style="background:var(--yellow);color:var(--on-yellow)">注册</a>{{end}}</div>
+  <div class="right">{{if .Me}}<a href="/me/notifications" aria-label="通知">🔔{{if .Unread}}<span class="badge">{{.Unread}}</span>{{end}}</a><a href="/me">{{template "avatar" .Me}}</a>{{else}}<a href="/login">登录</a><a href="/register" style="background:var(--accent);color:var(--on-accent)">注册</a>{{end}}</div>
   <div class="links">
     <a href="/" {{if eq .Path "/"}}class="on"{{end}}>任务大厅</a>
     <a href="/new" {{if eq .Path "/new"}}class="on"{{end}}>发布任务</a>
@@ -63,6 +63,13 @@
     return sync};
   if(document.querySelector('.ctabar'))document.body.classList.add('has-cta');
   document.querySelectorAll('form[data-confirm]').forEach(function(f){f.addEventListener('submit',function(e){if(!confirm(f.getAttribute('data-confirm')))e.preventDefault()})});
+  // 防重复提交：提交后按钮置灰 8 秒（页面通常已跳走）；表单加 data-noguard 可跳过
+  document.addEventListener('submit',function(e){var f=e.target;if(e.defaultPrevented||!f||f.hasAttribute('data-noguard')||f.target==='_blank')return;if(f.__busy){e.preventDefault();return}f.__busy=true;
+    var bs=f.querySelectorAll('button:not([type=button]):not([type=reset]),input[type=submit]');setTimeout(function(){bs.forEach(function(b){b.classList.add('busy');b.setAttribute('aria-busy','true')})},0);
+    setTimeout(function(){f.__busy=false;bs.forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})},8000)});
+  window.addEventListener('pageshow',function(){document.querySelectorAll('button.busy').forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})});
+  // 横向可滚的标签条：把当前项滚到可见位置
+  document.querySelectorAll('.tabs').forEach(function(t){var on=t.querySelector('a.on');if(on&&t.scrollWidth>t.clientWidth+4)t.scrollLeft=Math.max(0,on.offsetLeft-(t.clientWidth-on.offsetWidth)/2)});
 })();
 </script>
 {{template "scripts" .}}

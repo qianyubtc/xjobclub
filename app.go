@@ -319,7 +319,7 @@ func (a *App) routes() {
 	m.HandleFunc("POST /admin/sub/{code}/{action}", a.handleAdminSub)
 	m.HandleFunc("POST /admin/blacklist/{id}/lift", a.handleAdminLift)
 	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		a.errorPage(w, r, http.StatusNotFound, "页面不存在", "")
+		a.errorPage(w, r, http.StatusNotFound, "页面不存在", "链接可能失效了，或者这条任务 / 记录已被删除。")
 	})
 	a.mux = m
 }

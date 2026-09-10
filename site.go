@@ -62,7 +62,7 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p := mePage{Base: a.base(w, r), U: u, Tasks: map[int64]*Task{}, Users: map[int64]*User{}, Tab: r.URL.Query().Get("tab"), Cfg: a.cfg}
+	p := mePage{Base: a.base(w, r), U: u, Tasks: map[int64]*Task{}, Users: map[int64]*User{}, Tab: meTab(r.URL.Query().Get("tab")), Cfg: a.cfg}
 	p.Stats = a.st.PubStats(u.ID)
 	p.WStats = a.st.WorkerStats(u.ID)
 	p.PubTier = a.pubTier(p.Stats)
@@ -257,4 +257,13 @@ func (a *App) handleRefreshFollowers(w http.ResponseWriter, r *http.Request) {
 		a.flash(w, "粉丝数已更新："+strconv.FormatInt(u.Followers, 10))
 	}
 	http.Redirect(w, r, "/me?tab=settings", http.StatusFound)
+}
+
+// meTab 我的页面标签参数归一：未知值回到「待办」。
+func meTab(t string) string {
+	switch t {
+	case "tasks", "subs", "disputes", "settings":
+		return t
+	}
+	return ""
 }
