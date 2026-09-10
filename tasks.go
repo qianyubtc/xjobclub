@@ -90,6 +90,15 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats) string {
 	if t.MinAccountDays > 0 && u.XCreatedMs > 0 && ms()-u.XCreatedMs < t.MinAccountDays*dayMs {
 		return fmt.Sprintf("该任务要求 X 账号注册满 %d 天", t.MinAccountDays)
 	}
+	if t.MinFollowers > 0 {
+		a.refreshFollowers(u, false)
+		if u.Followers < 0 {
+			return "该任务要求粉丝数，暂时读不到你的粉丝数，请稍后再试（可在「我的 → 设置」手动刷新）"
+		}
+		if u.Followers < t.MinFollowers {
+			return fmt.Sprintf("该任务要求粉丝 ≥ %d，你当前 %d", t.MinFollowers, u.Followers)
+		}
+	}
 	tier := a.workerTier(st)
 	if st.Active >= tier.Concurrent {
 		return fmt.Sprintf("%s等级最多同时进行 %d 个任务，先完成手头的", tier.Name, tier.Concurrent)
@@ -98,6 +107,31 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats) string {
 		return fmt.Sprintf("%s等级每天最多接 %d 单", tier.Name, tier.Daily)
 	}
 	return ""
+}
+
+// refreshFollowers 粉丝数 24 小时内有效；未知或过期就抓一次。
+// 成功抓到后 10 分钟内不再抓（手动刷新也一样）；抓失败的话 1 分钟后允许重试，避免注册时一次失败把用户卡住 10 分钟。
+func (a *App) refreshFollowers(u *User, force bool) {
+	if u == nil {
+		return
+	}
+	if !force && u.Followers >= 0 && ms()-u.FollowersAt < dayMs {
+		return
+	}
+	if u.Followers >= 0 && ms()-u.FollowersAt < 10*time.Minute.Milliseconds() {
+		return
+	}
+	if !a.lim.allow("followers:"+strconv.FormatInt(u.ID, 10), 1, time.Minute) {
+		return
+	}
+	n, err := a.fetchFollowers(u.Handle)
+	if err != nil {
+		a.logf("[warn] 粉丝数抓取 @%s: %v", u.Handle, err)
+		return
+	}
+	if a.st.SetFollowers(u.ID, n) == nil {
+		u.Followers, u.FollowersAt = n, ms()
+	}
 }
 
 // workerLockedNow 待确认到账超过 24 小时未处理即锁定。
@@ -193,6 +227,7 @@ type newForm struct {
 	PayWindow string
 	Deadline  string
 	MinDays   string
+	MinFans   string
 	AdTag     bool
 	Lens      []int
 	EditCode  string // 编辑已有任务
@@ -215,7 +250,7 @@ type newPage struct {
 func (a *App) defaultForm() newForm {
 	c := a.cfg
 	return newForm{Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
-		Retention: strconv.FormatInt(c.RetentionDefault, 10), PayWindow: strconv.FormatInt(c.PayWindowDefault, 10), Deadline: strconv.FormatInt(c.DeadlineDefault, 10), MinDays: "0", AdTag: true}
+		Retention: strconv.FormatInt(c.RetentionDefault, 10), PayWindow: strconv.FormatInt(c.PayWindowDefault, 10), Deadline: strconv.FormatInt(c.DeadlineDefault, 10), MinDays: "0", MinFans: "0", AdTag: true}
 }
 
 func (a *App) newPageData(w http.ResponseWriter, r *http.Request, u *User, f newForm, errMsg string) newPage {
@@ -273,7 +308,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	}
 	c := a.cfg
 	f := newForm{Title: cleanText(r.FormValue("title"), 40, false), MatchMode: r.FormValue("match_mode"), Reward: strings.TrimSpace(r.FormValue("reward")), Slots: r.FormValue("slots"),
-		ClaimTTL: r.FormValue("claim_ttl"), Retention: r.FormValue("retention"), PayWindow: r.FormValue("pay_window"), Deadline: r.FormValue("deadline"), MinDays: r.FormValue("min_days"),
+		ClaimTTL: r.FormValue("claim_ttl"), Retention: r.FormValue("retention"), PayWindow: r.FormValue("pay_window"), Deadline: r.FormValue("deadline"), MinDays: r.FormValue("min_days"), MinFans: strings.TrimSpace(r.FormValue("min_followers")),
 		AdTag: r.FormValue("ad_tag") == "1", EditCode: strings.TrimSpace(r.FormValue("edit"))}
 	for i := int64(0); i < c.MaxVariants; i++ {
 		f.Contents = append(f.Contents, cleanText(r.FormValue("content"+strconv.FormatInt(i+1, 10)), 1000, true))
@@ -366,13 +401,17 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	if minDays < 0 || minDays > 3650 {
 		minDays = 0
 	}
+	minFans, _ := strconv.ParseInt(f.MinFans, 10, 64)
+	if minFans < 0 || minFans > 100000000 {
+		minFans = 0
+	}
 	tier := a.pubTier(st)
 	if st.ExposureE8+reward*slots > tier.ExposureE8 {
 		bad(fmt.Sprintf("超出%s等级的敞口上限 %s U（当前已占用 %s U，本任务需要 %s U）。多完成几单网关核销的付款可以升级。", tier.Name, fmtE8(tier.ExposureE8), fmtE8(st.ExposureE8), fmtE8(reward*slots)))
 		return
 	}
 	t := &Task{Code: newCode("T"), OwnerID: u.ID, Title: f.Title, Contents: contents, ContentsNorm: norm, MatchMode: f.MatchMode, RewardE8: reward, Currency: c.Currency,
-		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, AdTag: f.AdTag}
+		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, MinFollowers: minFans, AdTag: f.AdTag}
 	var id int64
 	for i := 0; i < 3; i++ {
 		id, err = a.st.CreateTask(t)

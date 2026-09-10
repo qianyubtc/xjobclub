@@ -22,7 +22,7 @@
   <div class="body">
     <div class="tt">{{.T.Title}}</div>
     <div class="meta">{{if .Owner}}<span>@{{.Owner.Handle}}</span><span>网关核销 <b>{{.Stats.PaidGateway}}</b> 单</span>{{if .Stats.Overdue}}<span style="color:var(--red)">逾期 {{.Stats.Overdue}}</span>{{end}}{{end}}<span>截止 {{fdate .T.DeadlineAt}}</span></div>
-    <div class="chips"><span class="chip">留存 {{dur .T.RetentionH}}</span><span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
+    <div class="chips"><span class="chip">留存 {{dur .T.RetentionH}}</span><span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .T.MinFollowers}}<span class="chip">粉丝 ≥ {{.T.MinFollowers}}</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
   </div>
 </a>{{end}}
 {{define "disputebody"}}

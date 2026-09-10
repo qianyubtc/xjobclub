@@ -649,3 +649,65 @@ func (a *App) repairCertPayments() {
 		log.Printf("[info] 修复认证：用户 #%d 付款单 #%d", r.uid, r.id)
 	}
 }
+
+// ---- 自定义收款方式（平台不核验到账）----
+
+func (a *App) handlePayMethodAdd(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	p, _ := a.st.GetPayProfile(u.ID)
+	if p == nil {
+		a.flash(w, "请先保存币安 UID，再添加其它收款方式")
+		http.Redirect(w, r, "/me/pay", http.StatusFound)
+		return
+	}
+	label := cleanText(r.FormValue("label"), 20, false)
+	value := cleanText(r.FormValue("value"), 120, false)
+	switch {
+	case label == "" || value == "":
+		a.flash(w, "名称和内容都要填，例如「BSC 钱包地址」和 0x…")
+	case strings.Contains(value, "://") || strings.Contains(strings.ToLower(value), "http"):
+		a.flash(w, "收款信息里不能放链接")
+	case len(p.Extra) >= 5:
+		a.flash(w, "最多添加 5 种")
+	default:
+		for _, m := range p.Extra {
+			if strings.EqualFold(m.Label, label) {
+				a.flash(w, "这个名称已存在，先删掉再加")
+				http.Redirect(w, r, "/me/pay", http.StatusFound)
+				return
+			}
+		}
+		if err := a.st.SetExtraMethods(u.ID, append(p.Extra, PayMethod{Label: label, Value: value})); err != nil {
+			a.fail(w, r, err)
+			return
+		}
+		a.st.Audit(u.ID, "pay.method_add", "user", u.ID, map[string]any{"label": label}, a.ip(r))
+		a.flash(w, "已添加「"+label+"」。注意：这类方式平台不核验到账，只能由你手动确认。")
+	}
+	http.Redirect(w, r, "/me/pay", http.StatusFound)
+}
+
+func (a *App) handlePayMethodDel(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	p, _ := a.st.GetPayProfile(u.ID)
+	idx, err := strconv.Atoi(r.FormValue("idx"))
+	if p == nil || err != nil || idx < 0 || idx >= len(p.Extra) {
+		http.Redirect(w, r, "/me/pay", http.StatusFound)
+		return
+	}
+	label := p.Extra[idx].Label
+	rest := append(append([]PayMethod{}, p.Extra[:idx]...), p.Extra[idx+1:]...)
+	if err := a.st.SetExtraMethods(u.ID, rest); err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	a.st.Audit(u.ID, "pay.method_del", "user", u.ID, map[string]any{"label": label}, a.ip(r))
+	a.flash(w, "已删除「"+label+"」")
+	http.Redirect(w, r, "/me/pay", http.StatusFound)
+}

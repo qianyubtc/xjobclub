@@ -242,3 +242,19 @@ func (a *App) handleRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	a.render(w, http.StatusOK, "records", p)
 }
+
+// handleRefreshFollowers 用户手动刷新粉丝数（10 分钟一次）。
+func (a *App) handleRefreshFollowers(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	before := u.FollowersAt
+	a.refreshFollowers(u, true)
+	if u.FollowersAt == before {
+		a.flash(w, "刚刷新过（10 分钟内只更新一次）或暂时读不到，请稍后再试")
+	} else {
+		a.flash(w, "粉丝数已更新："+strconv.FormatInt(u.Followers, 10))
+	}
+	http.Redirect(w, r, "/me?tab=settings", http.StatusFound)
+}

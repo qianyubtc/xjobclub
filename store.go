@@ -44,6 +44,8 @@ var schema = []string{
 		jury_noshow INTEGER NOT NULL DEFAULT 0,
 		jury_banned_until INTEGER NOT NULL DEFAULT 0,
 		handle_stale INTEGER NOT NULL DEFAULT 0,
+		followers INTEGER NOT NULL DEFAULT -1,
+		followers_at INTEGER NOT NULL DEFAULT 0,
 		created_at INTEGER NOT NULL,
 		last_login_at INTEGER NOT NULL DEFAULT 0)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_payer ON users(payer_id) WHERE payer_id<>''`,
@@ -57,6 +59,7 @@ var schema = []string{
 		api_key_masked TEXT NOT NULL DEFAULT '',
 		bpg_last_ok INTEGER NOT NULL DEFAULT 0,
 		bpg_last_err TEXT NOT NULL DEFAULT '',
+		extra_methods TEXT NOT NULL DEFAULT '[]',
 		updated_at INTEGER NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS idx_pay_uid ON pay_profiles(binance_uid)`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_pay_acct ON pay_profiles(bpg_account_id) WHERE bpg_account_id<>''`,
@@ -76,6 +79,7 @@ var schema = []string{
 		pay_window_h INTEGER NOT NULL,
 		deadline_at INTEGER NOT NULL,
 		min_account_days INTEGER NOT NULL DEFAULT 0,
+		min_followers INTEGER NOT NULL DEFAULT 0,
 		ad_tag INTEGER NOT NULL DEFAULT 1,
 		status TEXT NOT NULL DEFAULT 'open',
 		close_reason TEXT NOT NULL DEFAULT '',
@@ -252,6 +256,10 @@ var migrations = []string{
 	`ALTER TABLE submissions ADD COLUMN unreadable INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE users ADD COLUMN jury_noshow INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE users ADD COLUMN jury_banned_until INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE users ADD COLUMN followers INTEGER NOT NULL DEFAULT -1`,
+	`ALTER TABLE users ADD COLUMN followers_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pay_profiles ADD COLUMN extra_methods TEXT NOT NULL DEFAULT '[]'`,
+	`ALTER TABLE tasks ADD COLUMN min_followers INTEGER NOT NULL DEFAULT 0`,
 }
 
 func (s *Store) Close() { s.db.Close() }

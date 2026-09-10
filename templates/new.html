@@ -29,6 +29,7 @@
       <div><label for="pay_window">付款时限</label><select id="pay_window" name="pay_window">{{range $v := .Cfg.PayWindowOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.PayWindow}}selected{{end}}>{{dur $v}}</option>{{end}}</select><div class="hint">越短越吸引接单方；逾期会被冻结</div></div>
       <div><label for="deadline">任务截止（天）</label><input id="deadline" name="deadline" inputmode="numeric" value="{{.F.Deadline}}"><div class="hint">1–{{.Cfg.DeadlineMax}} 天，到期停止接单</div></div>
       <div><label for="min_days">接单要求：X 账号注册满（天）</label><input id="min_days" name="min_days" inputmode="numeric" value="{{.F.MinDays}}"><div class="hint">0 = 不限；按 X 数字 ID 估算，挡新注册小号</div></div>
+      <div><label for="min_followers">接单要求：粉丝数 ≥</label><input id="min_followers" name="min_followers" inputmode="numeric" value="{{.F.MinFans}}"><div class="hint">0 = 不限；粉丝数取自 X 公开接口，接单时校验，每天更新</div></div>
     </div>
     {{end}}
     <button class="btn" type="submit" style="margin-top:18px" {{if and .Block (not .F.EditCode)}}disabled{{end}}>{{if .F.EditCode}}保存{{else}}发布{{end}}</button>

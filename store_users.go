@@ -2,17 +2,18 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 )
 
-const userCols = `id,x_id,handle,handle_lower,display_name,avatar_url,pass_hash,status,reg_tweet_id,x_created_ms,payer_id,cert_paid_at,suspended_until,jury_score,jury_total,jury_agree,jury_noshow,jury_banned_until,handle_stale,created_at,last_login_at`
+const userCols = `id,x_id,handle,handle_lower,display_name,avatar_url,pass_hash,status,reg_tweet_id,x_created_ms,payer_id,cert_paid_at,suspended_until,jury_score,jury_total,jury_agree,jury_noshow,jury_banned_until,handle_stale,followers,followers_at,created_at,last_login_at`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanUser(r scanner) (*User, error) {
 	var u User
 	var stale int64
-	err := r.Scan(&u.ID, &u.XID, &u.Handle, &u.HandleLower, &u.DisplayName, &u.AvatarURL, &u.PassHash, &u.Status, &u.RegTweetID, &u.XCreatedMs, &u.PayerID, &u.CertPaidAt, &u.SuspendedUntil, &u.JuryScore, &u.JuryTotal, &u.JuryAgree, &u.JuryNoShow, &u.JuryBannedUntil, &stale, &u.CreatedAt, &u.LastLoginAt)
+	err := r.Scan(&u.ID, &u.XID, &u.Handle, &u.HandleLower, &u.DisplayName, &u.AvatarURL, &u.PassHash, &u.Status, &u.RegTweetID, &u.XCreatedMs, &u.PayerID, &u.CertPaidAt, &u.SuspendedUntil, &u.JuryScore, &u.JuryTotal, &u.JuryAgree, &u.JuryNoShow, &u.JuryBannedUntil, &stale, &u.Followers, &u.FollowersAt, &u.CreatedAt, &u.LastLoginAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -117,6 +118,11 @@ func (s *Store) SyncX(id int64, handle, name, avatar string) error {
 
 func (s *Store) SetUserStatus(id int64, status string) error {
 	_, err := s.db.Exec(`UPDATE users SET status=? WHERE id=?`, status, id)
+	return err
+}
+
+func (s *Store) SetFollowers(id, n int64) error {
+	_, err := s.db.Exec(`UPDATE users SET followers=?, followers_at=? WHERE id=?`, n, ms(), id)
 	return err
 }
 
@@ -246,14 +252,16 @@ func (s *Store) PruneVerify() {
 
 func (s *Store) GetPayProfile(userID int64) (*PayProfile, error) {
 	var p PayProfile
-	err := s.db.QueryRow(`SELECT user_id,binance_uid,receive_email,mode,bpg_account_id,api_key_masked,bpg_last_ok,bpg_last_err,updated_at FROM pay_profiles WHERE user_id=?`, userID).
-		Scan(&p.UserID, &p.BinanceUID, &p.ReceiveEmail, &p.Mode, &p.BPGAccountID, &p.APIKeyMasked, &p.BPGLastOK, &p.BPGLastErr, &p.UpdatedAt)
+	var extra string
+	err := s.db.QueryRow(`SELECT user_id,binance_uid,receive_email,mode,bpg_account_id,api_key_masked,bpg_last_ok,bpg_last_err,extra_methods,updated_at FROM pay_profiles WHERE user_id=?`, userID).
+		Scan(&p.UserID, &p.BinanceUID, &p.ReceiveEmail, &p.Mode, &p.BPGAccountID, &p.APIKeyMasked, &p.BPGLastOK, &p.BPGLastErr, &extra, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	json.Unmarshal([]byte(extra), &p.Extra)
 	return &p, nil
 }
 
@@ -274,9 +282,19 @@ func (s *Store) UpsertPayProfile(p *PayProfile) error {
 		_, err = tx.Exec(`INSERT INTO pay_profiles(user_id,binance_uid,receive_email,mode,bpg_account_id,api_key_masked,bpg_last_ok,bpg_last_err,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(user_id) DO UPDATE SET binance_uid=excluded.binance_uid, receive_email=excluded.receive_email, mode=excluded.mode, bpg_account_id=excluded.bpg_account_id,
 			api_key_masked=excluded.api_key_masked, bpg_last_ok=excluded.bpg_last_ok, bpg_last_err=excluded.bpg_last_err, updated_at=excluded.updated_at`,
-			p.UserID, p.BinanceUID, p.ReceiveEmail, p.Mode, p.BPGAccountID, p.APIKeyMasked, p.BPGLastOK, p.BPGLastErr, ms())
+			p.UserID, p.BinanceUID, p.ReceiveEmail, p.Mode, p.BPGAccountID, p.APIKeyMasked, p.BPGLastOK, p.BPGLastErr, ms()) // extra_methods 不在这里改，走 SetExtraMethods
 		return err
 	})
+}
+
+// SetExtraMethods 保存自定义收款方式列表（需已有收款设置）。
+func (s *Store) SetExtraMethods(userID int64, ms_ []PayMethod) error {
+	if ms_ == nil {
+		ms_ = []PayMethod{}
+	}
+	b, _ := json.Marshal(ms_)
+	_, err := s.db.Exec(`UPDATE pay_profiles SET extra_methods=?, updated_at=? WHERE user_id=?`, string(b), ms(), userID)
+	return err
 }
 
 func (s *Store) SetPayHealth(userID, lastOK int64, lastErr string) {

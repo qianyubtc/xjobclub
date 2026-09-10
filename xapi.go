@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -153,4 +155,53 @@ func (a *App) fetchTweetRaw(id string) (*Tweet, error) {
 	}
 	tw.Text = strings.TrimSpace(text)
 	return tw, nil
+}
+
+var reFollowers = regexp.MustCompile(`"followers_count":(\d+)`)
+
+// fetchFollowers 读取公开粉丝数：先试 X 嵌入时间线页（官方接口，返回 HTML 内嵌 JSON），再退回 FxTwitter 风格镜像。
+// 两者都免 Key；任何失败返回 error，调用方把粉丝数视为"未知"。
+func (a *App) fetchFollowers(handle string) (int64, error) {
+	a.fetchSem <- struct{}{}
+	defer func() { <-a.fetchSem }()
+	if a.cfg.XSyndAPI != "" {
+		req, _ := http.NewRequest("GET", a.cfg.XSyndAPI+"/srv/timeline-profile/screen-name/"+handle, nil)
+		req.Header.Set("User-Agent", "Mozilla/5.0 (xjobclub)")
+		if resp, err := xHC.Do(req); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				if m := reFollowers.FindSubmatch(body); m != nil {
+					if n, err := strconv.ParseInt(string(m[1]), 10, 64); err == nil {
+						return n, nil
+					}
+				}
+			}
+		}
+	}
+	if a.cfg.XProfileAPI == "" {
+		return -1, errors.New("no profile source")
+	}
+	req, _ := http.NewRequest("GET", a.cfg.XProfileAPI+"/"+handle, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (xjobclub)")
+	req.Header.Set("Accept", "application/json")
+	resp, err := xHC.Do(req)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	if resp.StatusCode != 200 {
+		return -1, fmt.Errorf("profile api %d", resp.StatusCode)
+	}
+	var d struct {
+		Code int `json:"code"`
+		User struct {
+			Followers *int64 `json:"followers"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(body, &d); err != nil || d.User.Followers == nil {
+		return -1, errors.New("profile api: no followers")
+	}
+	return *d.User.Followers, nil
 }

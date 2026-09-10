@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-const taskCols = `id,code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,ad_tag,status,close_reason,paused_by_freeze,published_at,created_at,updated_at`
+const taskCols = `id,code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,status,close_reason,paused_by_freeze,published_at,created_at,updated_at`
 
 func scanTask(r scanner) (*Task, error) {
 	var t Task
 	var contents, norm string
 	var ad, pbf int64
-	err := r.Scan(&t.ID, &t.Code, &t.OwnerID, &t.Title, &contents, &norm, &t.MatchMode, &t.RewardE8, &t.Currency, &t.SlotsTotal, &t.ClaimTTLMin, &t.RetentionH, &t.PayWindowH, &t.DeadlineAt, &t.MinAccountDays, &ad, &t.Status, &t.CloseReason, &pbf, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt)
+	err := r.Scan(&t.ID, &t.Code, &t.OwnerID, &t.Title, &contents, &norm, &t.MatchMode, &t.RewardE8, &t.Currency, &t.SlotsTotal, &t.ClaimTTLMin, &t.RetentionH, &t.PayWindowH, &t.DeadlineAt, &t.MinAccountDays, &t.MinFollowers, &ad, &t.Status, &t.CloseReason, &pbf, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -25,9 +25,9 @@ func scanTask(r scanner) (*Task, error) {
 
 func (s *Store) CreateTask(t *Task) (int64, error) {
 	now := ms()
-	res, err := s.db.Exec(`INSERT INTO tasks(code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,ad_tag,status,published_at,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?)`,
-		t.Code, t.OwnerID, t.Title, jsonList(t.Contents), jsonList(t.ContentsNorm), t.MatchMode, t.RewardE8, t.Currency, t.SlotsTotal, t.ClaimTTLMin, t.RetentionH, t.PayWindowH, t.DeadlineAt, t.MinAccountDays, b2i(t.AdTag), now, now, now)
+	res, err := s.db.Exec(`INSERT INTO tasks(code,owner_id,title,contents,contents_norm,match_mode,reward_e8,currency,slots_total,claim_ttl_min,retention_h,pay_window_h,deadline_at,min_account_days,min_followers,ad_tag,status,published_at,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?)`,
+		t.Code, t.OwnerID, t.Title, jsonList(t.Contents), jsonList(t.ContentsNorm), t.MatchMode, t.RewardE8, t.Currency, t.SlotsTotal, t.ClaimTTLMin, t.RetentionH, t.PayWindowH, t.DeadlineAt, t.MinAccountDays, t.MinFollowers, b2i(t.AdTag), now, now, now)
 	if err != nil {
 		return 0, err
 	}

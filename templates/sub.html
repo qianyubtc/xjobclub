@@ -93,6 +93,7 @@
       <span class="k">备注建议</span><span class="v"><code>{{.X.Code}}</code><button type="button" class="copy" data-copy="{{.X.Code}}">复制</button></span>
     </div>
     <div class="hint">币安 App → 底部「支付」→「转账」→ 输入 UID → 金额 → 备注 → 转账 → 回来登记订单编号。</div>
+    {{if .Payee.Extra}}<details class="fold"><summary>接单方也接受其它方式（平台不核验到账）</summary><div class="kv" style="border-style:solid">{{range .Payee.Extra}}<span class="k">{{.Label}}</span><span class="v"><code>{{.Value}}</code><button type="button" class="copy" data-copy="{{.Value}}">复制</button></span>{{end}}</div><div class="hint">用这些方式付款后，在下方登记时选「其它方式」并填交易哈希/凭证，由接单方手动确认。</div></details>{{end}}
     {{template "markform" .}}
   {{end}}
 </section>
@@ -118,8 +119,11 @@
   {{range .Timeline}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}}{{if .ActorID}} · {{with index $.Actors .ActorID}}@{{.Handle}}{{end}}{{end}}{{if .Meta}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}
 </ul></section>
 {{end}}
-{{define "markform"}}<form method="post" action="/s/{{.X.Code}}/pay/mark" data-confirm="确认已向接单方转账并登记？虚假标记查实将进入黑名单。">
-  <label>币安订单编号（必填，18 位数字，币安 App 转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" pattern="[0-9]{18}" required>
+{{define "markform"}}<form method="post" action="/s/{{.X.Code}}/pay/mark" data-confirm="确认已向接单方转账并登记？虚假标记查实将进入黑名单。" class="markform">
+  {{if and .Payee .Payee.Extra}}<label>付款方式</label><div class="row"><label style="margin:0"><input type="radio" name="via" value="binance" checked>币安 Pay（填 18 位订单编号）</label><label style="margin:0"><input type="radio" name="via" value="other">其它方式（填交易哈希/凭证）</label></div>
+  <div class="via-binance"><label>币安订单编号（18 位数字，币安 App 转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" pattern="[0-9]{18}"></div>
+  <div class="via-other" hidden><label>用的哪种方式</label><select name="method">{{range .Payee.Extra}}<option value="{{.Label}}">{{.Label}}</option>{{end}}</select><label>交易哈希 / 付款凭证</label><input name="ref" maxlength="120" autocapitalize="off"></div>
+  {{else}}<label>币安订单编号（必填，18 位数字，币安 App 转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" pattern="[0-9]{18}" required>{{end}}
   <label>备注（可选）</label><input name="note" maxlength="200">
   <button class="btn" style="margin-top:10px">我已付款，登记</button>
 </form>{{end}}
@@ -131,6 +135,7 @@
   var timer=null;function stop(){if(timer){clearInterval(timer);timer=null}}
   function tick(){fetch('/s/'+code+'/status',{cache:'no-store',redirect:'manual'}).then(function(r){if(!r.ok||r.type==='opaqueredirect'){throw new Error('bad')}return r.json()}).then(function(j){fails=0;if(j.status!==st){location.reload();return}if(j.pay&&j.pay.status!=='pending'&&active){location.reload()}}).catch(function(){if(++fails>=8){stop();if(window.toast)toast('已停止自动刷新，请手动刷新页面')}})}
   if(poll)timer=setInterval(tick,4000);
+  document.querySelectorAll('.markform').forEach(function(f){f.addEventListener('change',function(e){if(e.target.name!=='via')return;var o=e.target.value==='other';f.querySelector('.via-binance').hidden=o;f.querySelector('.via-other').hidden=!o;var b=f.querySelector('[name=binance_order_id]'),r=f.querySelector('[name=ref]');if(b)b.required=!o;if(r)r.required=o})});
   var cf=document.getElementById('claimForm');if(cf)cf.addEventListener('submit',function(e){e.preventDefault();var fd=new FormData(cf),m=document.getElementById('claimMsg');m.textContent='核对中…';
     fetch('/s/'+code+'/pay/claim',{method:'POST',body:new URLSearchParams(fd),headers:{'X-Requested-With':'fetch'}}).then(function(r){return r.json()}).then(function(j){m.textContent=j.msg||'';if(j.ok)setTimeout(function(){location.reload()},800)}).catch(function(){m.textContent='网络错误'})});
 })();

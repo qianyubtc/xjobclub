@@ -10,7 +10,7 @@
     <span class="k">付款时限</span><span class="v">待付款后 {{dur .T.PayWindowH}} 内，发布方逾期会被冻结并可被举报</span>
     <span class="k">匹配方式</span><span class="v">{{if eq .T.MatchMode "contains"}}包含即可：推文里完整包含文案，可以加自己的话{{else}}全文一致：推文正文须与文案一致（空白与链接写法不计）{{end}}</span>
     <span class="k">任务截止</span><span class="v">{{ftime .T.DeadlineAt}}</span>
-    {{if .T.MinAccountDays}}<span class="k">接单要求</span><span class="v">X 账号注册满 {{.T.MinAccountDays}} 天</span>{{end}}
+    {{if or .T.MinAccountDays .T.MinFollowers}}<span class="k">接单要求</span><span class="v">{{if .T.MinAccountDays}}X 账号注册满 {{.T.MinAccountDays}} 天{{end}}{{if and .T.MinAccountDays .T.MinFollowers}} · {{end}}{{if .T.MinFollowers}}粉丝 ≥ {{.T.MinFollowers}}{{end}}</span>{{end}}
   </div>
   <h2>推文文案{{if gt (len .T.Contents) 1}} <span class="muted small">共 {{len .T.Contents}} 个变体，接单时分配一条，发任一条都算</span>{{end}}</h2>
   {{range $i, $c := .T.Contents}}<pre class="tweet" id="c{{$i}}">{{$c}}</pre><div class="small muted">变体 {{inc $i}} <button type="button" class="copy" data-copy-from="c{{$i}}">复制</button></div>{{end}}
@@ -63,7 +63,7 @@
   {{if and .Me (not .Block)}}<form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单（锁定名额 {{durMin .T.ClaimTTLMin}}）</button></form>
   <div class="ctabar"><div class="price">{{amt .T.RewardE8}}<small>U / 条</small></div><form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单 · 剩 {{.T.Left}}</button></form></div>
   <div class="hint">接单后按分配到的文案发帖，回填链接自动验证。发完再删会作废，留存期后复检。</div>
-  {{else if .Me}}<div class="notice warn">{{.Block}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div>{{end}}
+  {{else if .Me}}<div class="notice warn">{{.Block}}{{if and .T.MinFollowers (lt .Me.Followers .T.MinFollowers)}} <a href="/me?tab=settings">粉丝数不对？去刷新</a>{{end}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div>{{end}}
   {{if .Me}}<details class="fold" style="margin-top:14px"><summary>举报这个任务</summary><form method="post" action="/report/task/{{.T.Code}}"><label>理由（诈骗、违法、侮辱等）</label><textarea name="text" required minlength="5" maxlength="1000"></textarea><button class="btn sec sm" style="margin-top:8px">提交举报</button></form></details>{{end}}
 </section>
 {{end}}

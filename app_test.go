@@ -237,7 +237,37 @@ type env struct {
 	synd *syndMock
 	gw   *gwMock
 	dir  string
+	prof *profMock
 }
+
+// profMock 粉丝数来源 mock：/{handle} 返回 FxTwitter 风格 JSON；/srv/... 返回 404 模拟官方接口不可用。
+type profMock struct {
+	mu        sync.Mutex
+	followers map[string]int64
+	srv       *httptest.Server
+}
+
+func newProf() *profMock {
+	m := &profMock{followers: map[string]int64{}}
+	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/srv/") {
+			w.WriteHeader(404)
+			return
+		}
+		h := strings.TrimPrefix(r.URL.Path, "/")
+		m.mu.Lock()
+		n, ok := m.followers[h]
+		m.mu.Unlock()
+		if !ok {
+			w.WriteHeader(404)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"code": 200, "user": map[string]any{"followers": n}})
+	}))
+	return m
+}
+
+func (m *profMock) set(handle string, n int64) { m.mu.Lock(); m.followers[handle] = n; m.mu.Unlock() }
 
 type browser struct {
 	e   *env
@@ -250,9 +280,10 @@ func newEnv(t *testing.T, extra string) *env {
 	dir := t.TempDir()
 	synd := newSynd()
 	gw := newGW("testkey-testkey")
+	prof := newProf()
 	cfgPath := filepath.Join(dir, "config.env")
-	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\n%s",
-		filepath.Join(dir, "t.db"), filepath.Join(dir, "up"), gw.srv.URL, synd.srv.URL, extra)), 0o644)
+	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nX_SYND_API=%s\nX_PROFILE_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\n%s",
+		filepath.Join(dir, "t.db"), filepath.Join(dir, "up"), gw.srv.URL, synd.srv.URL, prof.srv.URL, prof.srv.URL, extra)), 0o644)
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -263,8 +294,8 @@ func newEnv(t *testing.T, extra string) *env {
 	}
 	srv := httptest.NewServer(app)
 	gw.appURL = srv.URL
-	e := &env{t: t, a: app, srv: srv, synd: synd, gw: gw, dir: dir}
-	t.Cleanup(func() { srv.Close(); synd.srv.Close(); gw.srv.Close(); app.Close() })
+	e := &env{t: t, a: app, srv: srv, synd: synd, gw: gw, dir: dir, prof: prof}
+	t.Cleanup(func() { srv.Close(); synd.srv.Close(); gw.srv.Close(); prof.srv.Close(); app.Close() })
 	return e
 }
 
@@ -1188,5 +1219,90 @@ func TestPublicRecords(t *testing.T) {
 	}
 	if _, body := anon.get("/u/ola"); !strings.Contains(body, "最近完成的单") {
 		t.Fatal("profile should list completions")
+	}
+}
+
+// ---- 粉丝数门槛 / 自定义收款方式 / 非币安方式登记 ----
+
+func TestMinFollowersAndCustomMethods(t *testing.T) {
+	e := newEnv(t, "")
+	alice, pam := e.browser("alice"), e.browser("pam")
+	alice.register("alice", "9981")
+	e.prof.set("pam", 50)
+	pu := pam.register("pam", "9982")
+	e.a.st.SetFollowers(pu.ID, 50) // 注册时的异步抓取结果一样是 50，这里直接落库让断言确定
+	alice.setUID("87001")
+	alice.certify("payer-A98")
+	pam.setUID("87002")
+	// 自定义收款方式
+	if resp, _ := pam.post("/me/pay/method", url.Values{"label": {"BSC 钱包地址"}, "value": {"0xabcDEF0123456789"}}); resp.StatusCode != 302 {
+		t.Fatal("add method failed")
+	}
+	pam.post("/me/pay/method", url.Values{"label": {"坏的"}, "value": {"https://evil.example"}})
+	p, _ := e.a.st.GetPayProfile(pu.ID)
+	if len(p.Extra) != 1 || p.Extra[0].Label != "BSC 钱包地址" {
+		t.Fatalf("extra methods: %+v", p.Extra)
+	}
+	if _, body := pam.get("/me/pay"); !strings.Contains(body, "0xabcDEF0123456789") {
+		t.Fatal("pay settings should list the method")
+	}
+	// 粉丝门槛：pam 只有 50 粉，任务要求 100
+	task := alice.publish(taskForm(url.Values{"min_followers": {"100"}}))
+	if resp, _ := pam.post("/t/"+task.Code+"/claim", nil); resp.Header.Get("Location") != task.Path() {
+		t.Fatal("claim should bounce for too few followers")
+	}
+	if _, body := pam.get(task.Path()); !strings.Contains(body, "粉丝 ≥ 100") || !strings.Contains(body, "你当前 50") {
+		t.Fatal("task page should explain the follower requirement")
+	}
+	// 粉丝涨到 500（缓存 24h：直接改库模拟刷新后的状态）
+	e.prof.set("pam", 500)
+	e.a.st.SetFollowers(pu.ID, 500)
+	x := pam.claim(task)
+	e.synd.add(mockTweet{ID: "98101", Text: task.Contents[0], UserID: "9982", Handle: "pam"})
+	x = pam.submitTweet(x, "98101")
+	if x.Status != SPayable {
+		t.Fatalf("payable expected: %s", x.Status)
+	}
+	// 发布方看到其它收款方式，并用「其它方式」登记
+	if _, body := alice.get(x.Path()); !strings.Contains(body, "BSC 钱包地址") || !strings.Contains(body, "其它方式") {
+		t.Fatal("owner pay panel should show custom methods")
+	}
+	if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"via": {"other"}, "method": {"BSC 钱包地址"}, "ref": {"0x9f8e7d6c5b4a"}}); resp.StatusCode != 302 {
+		t.Fatal("mark via other failed")
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SAwait || x.MarkedOrderID != "" || !strings.Contains(x.MarkedNote, "0x9f8e7d6c5b4a") {
+		t.Fatalf("other-method mark: %s %q %q", x.Status, x.MarkedOrderID, x.MarkedNote)
+	}
+	pam.post("/s/"+x.Code+"/confirm", nil)
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SPaid {
+		t.Fatalf("confirm after other-method mark: %s", x.Status)
+	}
+	// 删除自定义方式
+	pam.post("/me/pay/method/del", url.Values{"idx": {"0"}})
+	p, _ = e.a.st.GetPayProfile(pu.ID)
+	if len(p.Extra) != 0 {
+		t.Fatal("method should be deleted")
+	}
+}
+
+func TestFollowersFetchedAtRegister(t *testing.T) {
+	e := newEnv(t, "")
+	e.prof.set("quinn", 7754)
+	qu := e.browser("quinn").register("quinn", "9983")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		u, _ := e.a.st.GetUserByID(qu.ID)
+		if u.Followers == 7754 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("followers not fetched at register: %d", u.Followers)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, body := e.browser("quinn").get("/u/quinn"); !strings.Contains(body, "7754") {
+		t.Fatal("profile should show followers")
 	}
 }

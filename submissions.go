@@ -261,7 +261,17 @@ func (a *App) handlePayMark(w http.ResponseWriter, r *http.Request) {
 	boid := strings.TrimSpace(r.FormValue("binance_order_id"))
 	note := cleanText(r.FormValue("note"), 200, false)
 	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
-	if !reBinanceOrder.MatchString(boid) {
+	if via := r.FormValue("via"); via == "other" {
+		// 通过接单方自定义的收款方式付款：没有币安订单号，改填交易哈希/凭证；平台不核验，接单方手动确认
+		ref := cleanText(r.FormValue("ref"), 120, false)
+		label := cleanText(r.FormValue("method"), 20, false)
+		if len([]rune(ref)) < 6 {
+			bad("请填写交易哈希或付款凭证（至少 6 个字符）")
+			return
+		}
+		boid = ""
+		note = strings.TrimSpace("经「" + label + "」付款，凭证 " + ref + " " + note)
+	} else if !reBinanceOrder.MatchString(boid) {
 		bad("请填写币安 App 转账详情里的 18 位订单编号")
 		return
 	}
@@ -280,7 +290,11 @@ func (a *App) handlePayMark(w http.ResponseWriter, r *http.Request) {
 		a.st.ResolveDispute(d.ID, "marked_paid", "发布方已登记付款，转待接单方确认；未收到可再发起申诉", 0)
 		a.st.Audit(u.ID, "dispute.auto_close", "dispute", d.ID, map[string]any{"reason": "marked_paid"}, a.ip(r))
 	}
-	a.notify(x.WorkerID, "pay", "发布方已标记付款，请核对到账", fmt.Sprintf("任务 %s 的 %s U，币安订单 %s。请在币安 App 核对后点「已收到」；没收到请发起申诉。24 小时未处理会暂时不能接新任务。", t.Code, fmtE8(t.RewardE8), boid), x.Path())
+	ref := boid
+	if ref == "" {
+		ref = note
+	}
+	a.notify(x.WorkerID, "pay", "发布方已标记付款，请核对到账", fmt.Sprintf("任务 %s 的 %s U，%s。请核对后点「已收到」；没收到请发起申诉。24 小时未处理会暂时不能接新任务。", t.Code, fmtE8(t.RewardE8), ref), x.Path())
 	a.flash(w, "已登记，等待接单方确认")
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }

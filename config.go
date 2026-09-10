@@ -34,6 +34,8 @@ type Config struct {
 	TrustProxy  bool
 	TrustHeader string
 	XTweetAPI   string // 推文抓取接口基址（测试时指向 mock）
+	XSyndAPI    string // X 嵌入时间线接口（粉丝数第一来源）
+	XProfileAPI string // FxTwitter 风格的公开镜像接口（粉丝数第二来源）
 
 	// 任务参数
 	MinRewardE8      int64
@@ -177,6 +179,8 @@ func loadConfig(path string) (*Config, error) {
 		TrustProxy:  getBool("TRUST_PROXY", false),
 		TrustHeader: get("TRUST_PROXY_HEADER", "X-Forwarded-For"),
 		XTweetAPI:   strings.TrimRight(get("X_TWEET_API", "https://cdn.syndication.twimg.com"), "/"),
+		XSyndAPI:    strings.TrimRight(get("X_SYND_API", "https://syndication.twitter.com"), "/"),
+		XProfileAPI: strings.TrimRight(get("X_PROFILE_API", "https://api.fxtwitter.com"), "/"),
 
 		AdminHandles: map[string]bool{},
 		JuryTypes:    map[string]bool{},

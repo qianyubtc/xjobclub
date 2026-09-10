@@ -14,6 +14,11 @@
     <button class="btn" style="margin-top:12px">保存</button>
     <div class="hint">手动确认模式：发布方付款后登记订单号，你在币安 App 核对后点「已收到」。</div>
   </form>
+  <h2>其它收款方式（可选，平台不核验到账）</h2>
+  <p class="small muted">例如「BSC 钱包地址」「TRON 地址」「Binance 邮箱」。付款方会看到这些信息并可选择用它们付你；这类付款平台无法自动确认，只能由你在收到后手动点「已收到」。</p>
+  {{if .P}}{{if .P.Extra}}<div class="tbl"><table><tr><th>名称</th><th>内容</th><th></th></tr>{{range $i, $m := .P.Extra}}<tr><td>{{$m.Label}}</td><td><code>{{$m.Value}}</code></td><td><form method="post" action="/me/pay/method/del" data-confirm="删除「{{$m.Label}}」？"><input type="hidden" name="idx" value="{{$i}}"><button class="btn ghost sm">删除</button></form></td></tr>{{end}}</table></div>{{end}}
+  {{if lt (len .P.Extra) 5}}<form method="post" action="/me/pay/method" class="grid2"><div><label>名称（≤20 字）</label><input name="label" maxlength="20" placeholder="BSC 钱包地址" required></div><div><label>内容（≤120 字，不能是链接）</label><input name="value" maxlength="120" placeholder="0x…" required autocapitalize="off"></div><div><button class="btn sec sm">添加</button></div></form>{{end}}
+  {{else}}<div class="hint">先保存币安 UID 后再添加。</div>{{end}}
   {{if .Gateway}}
   <h2>方式二：自动到账（进阶，可选）</h2>
   <p class="small muted">绑定一把<b>只读</b>币安 API Key，网关轮询你的 Pay 流水自动核销，不用天天点确认，也能拿到"网关核销"信用。Key 与 Secret 直接交给网关加密保存，不进本站数据库。</p>

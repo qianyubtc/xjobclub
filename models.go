@@ -24,6 +24,8 @@ type User struct {
 	JuryNoShow      int64
 	JuryBannedUntil int64
 	HandleStale     bool
+	Followers       int64 // -1 = 未知
+	FollowersAt     int64
 	CreatedAt       int64
 	LastLoginAt     int64
 }
@@ -57,7 +59,14 @@ type PayProfile struct {
 	APIKeyMasked string
 	BPGLastOK    int64
 	BPGLastErr   string
+	Extra        []PayMethod // 自定义收款方式（平台不核验到账）
 	UpdatedAt    int64
+}
+
+// PayMethod 用户自定义收款方式，例如「BSC 钱包地址」= 0x…。
+type PayMethod struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 func (p *PayProfile) Gateway() bool { return p != nil && p.Mode == "gateway" && p.BPGAccountID != "" }
@@ -80,6 +89,7 @@ type Task struct {
 	PayWindowH     int64
 	DeadlineAt     int64
 	MinAccountDays int64
+	MinFollowers   int64
 	AdTag          bool
 	Status         string // open | paused | closed
 	CloseReason    string
