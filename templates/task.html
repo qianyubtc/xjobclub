@@ -26,8 +26,22 @@
 </section>
 
 {{if .IsOwner}}
-<section class="card">
-  <h2 style="margin-top:0">管理任务</h2>
+<section class="card" id="manage">
+  <div class="sec-h"><h2>任务管理</h2><span class="eyebrow">{{.T.DoneCount}} / {{.T.SlotsTotal}} 已完成</span></div>
+  <div class="prog" aria-label="名额进度"><span class="p-done" style="width:{{pct .T.DoneCount .T.SlotsTotal}}%"></span><span class="p-pay" style="width:{{pct .PayDueN .T.SlotsTotal}}%"></span><span class="p-act" style="width:{{pct .ActiveN .T.SlotsTotal}}%"></span></div>
+  <div class="legend"><span><i class="sw p-done"></i>已完成 {{.T.DoneCount}}</span><span><i class="sw p-pay"></i>待你付款 {{.PayDueN}}</span><span><i class="sw p-act"></i>进行中 {{.ActiveN}}</span><span><i class="sw p-free"></i>剩余名额 {{.T.Left}}</span></div>
+  {{if .Todo}}<div class="grp need"><div class="grp-h">需要你处理 <span class="badge">{{len .Todo}}</span></div>
+    {{range .Todo}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt $.T.RewardE8}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}</div>{{end}}
+  </div>{{end}}
+  {{if .Active}}<div class="grp"><div class="grp-h">进行中 <span class="muted">{{len .Active}}</span></div>
+    {{range .Active}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
+  </div>{{end}}
+  {{if .DoneList}}<div class="grp"><div class="grp-h">已完成 <span class="muted">{{len .DoneList}}</span></div>
+    {{range .DoneList}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st good">已完成</span><span class="next">{{ownerNext .}}{{if .Late}} · 逾期付款{{end}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
+  </div>{{end}}
+  {{if .Dead}}<details class="fold"><summary>过期 / 作废 / 违约（{{len .Dead}}）</summary>{{range .Dead}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span><a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}</details>{{end}}
+  {{if not .Subs}}<p class="muted small">还没有人接单。任务在大厅可见，接单后你会收到通知。</p>{{end}}
+  <h3>操作</h3>
   <div class="btns">
     {{if eq .T.Status "open"}}<form method="post" action="/t/{{.T.Code}}/pause"><button class="btn sec sm">暂停接单</button></form>{{end}}
     {{if eq .T.Status "paused"}}<form method="post" action="/t/{{.T.Code}}/resume"><button class="btn sec sm">恢复接单</button></form>{{end}}

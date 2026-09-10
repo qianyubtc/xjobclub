@@ -28,7 +28,12 @@ type mePage struct {
 	CertNeeded bool
 	Tab        string
 	Cfg        *Config
+	TaskStats  map[int64]TaskCounts
+	Latest     []Notification
 }
+
+// TaskCounts 发布方任务卡上的计数。
+type TaskCounts struct{ Done, PayDue, Await, Active int64 }
 
 func (a *App) fillTasksUsers(tasks map[int64]*Task, users map[int64]*User, subs []*Submission) {
 	for _, x := range subs {
@@ -67,6 +72,16 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	p.Active, _ = a.st.SubsByWorkerStatus(u.ID, SClaimed, SSubmit, SVerified)
 	p.MySubs, _ = a.st.SubsByWorker(u.ID, 50)
 	p.MyTasks, _ = a.st.TasksByOwner(u.ID)
+	p.TaskStats = map[int64]TaskCounts{}
+	for _, t := range p.MyTasks {
+		var c TaskCounts
+		c.Done = t.DoneCount
+		c.PayDue = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status IN ('payable','overdue')`, t.ID)
+		c.Await = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status='awaiting_confirm'`, t.ID)
+		c.Active = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status IN ('claimed','submitted','verified','disputed')`, t.ID)
+		p.TaskStats[t.ID] = c
+	}
+	p.Latest, _ = a.st.Notifications(u.ID, 5)
 	a.fillTasksUsers(p.Tasks, p.Users, p.ToPay)
 	a.fillTasksUsers(p.Tasks, p.Users, p.ToConfirm)
 	a.fillTasksUsers(p.Tasks, p.Users, p.Active)

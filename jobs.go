@@ -81,6 +81,11 @@ func (a *App) expireClaims(now int64) {
 		if ok, _ := a.st.SetExpired(x.ID); ok {
 			a.st.Audit(0, "sub.expired", "submission", x.ID, nil, "")
 			a.notify(x.WorkerID, "verify", "接单已过期", "记录 "+x.Code+" 未在时限内提交，名额已释放。", x.Path())
+			if t, _ := a.st.GetTaskByID(x.TaskID); t != nil {
+				if w, _ := a.st.GetUserByID(x.WorkerID); w != nil {
+					a.notify(t.OwnerID, "task", "@"+w.Handle+" 接单超时，名额已释放", "《"+t.Title+"》可接名额 +1。", t.Path()+"#manage")
+				}
+			}
 		}
 	}
 }

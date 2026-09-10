@@ -410,6 +410,13 @@ type taskPage struct {
 	Done       bool
 	CanEdit    bool
 	Public     []PublicRecord
+	Todo       []*Submission // 需要发布方处理：待付款 / 逾期 / 待确认（含补差）
+	Active     []*Submission // 进行中：已接单 / 验证中 / 留存中 / 申诉中
+	DoneList   []*Submission
+	Dead       []*Submission // 过期 / 作废 / 违约
+	PayDueN    int64         // 待付款 + 逾期（要掏钱的）
+	ActiveN    int64
+	DeadN      int64
 }
 
 func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
@@ -444,6 +451,21 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 					if u, _ := a.st.GetUserByID(x.WorkerID); u != nil {
 						p.Workers[x.WorkerID] = u
 					}
+				}
+				switch x.Status {
+				case SPayable, SOverdue:
+					p.Todo = append(p.Todo, x)
+					p.PayDueN++
+				case SAwait:
+					p.Todo = append(p.Todo, x)
+				case SClaimed, SSubmit, SVerified, SDisputed:
+					p.Active = append(p.Active, x)
+					p.ActiveN++
+				case SPaid:
+					p.DoneList = append(p.DoneList, x)
+				default:
+					p.Dead = append(p.Dead, x)
+					p.DeadN++
 				}
 			}
 			p.CanEdit = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=?`, t.ID) == 0 && t.Status != "closed"
@@ -492,6 +514,7 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 		a.st.db.Exec(`UPDATE submissions SET self_deal=1 WHERE id=?`, x.ID)
 	}
 	a.st.Audit(u.ID, "sub.claim", "submission", x.ID, map[string]any{"task": t.Code}, a.ip(r))
+	a.notify(t.OwnerID, "task", "有人接单：@"+u.Handle+" 接了《"+t.Title+"》", fmt.Sprintf("对方需在 %s 内发帖并回填链接；本任务还剩 %d 个名额。", durMin(t.ClaimTTLMin), t.Left()-1), t.Path()+"#manage")
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }
 

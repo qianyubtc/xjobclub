@@ -142,7 +142,8 @@ func (a *App) funcs() template.FuncMap {
 			}
 			return m
 		},
-		"stClass": stClass,
+		"stClass":   stClass,
+		"ownerNext": ownerNext,
 		"pubStatus": func(s string) string {
 			switch s {
 			case SClaimed, SSubmit:
@@ -578,4 +579,42 @@ func (a *App) redirectBack(w http.ResponseWriter, r *http.Request, def string) {
 		}
 	}
 	http.Redirect(w, r, def, http.StatusFound)
+}
+
+// ownerNext 发布方视角：这条记录下一步是什么、还剩多久。
+func ownerNext(x *Submission) string {
+	switch x.Status {
+	case SClaimed:
+		if x.LastError != "" {
+			return "对方验证未通过，正在改（提交剩 " + left(x.ClaimExpiresAt) + "）"
+		}
+		return "等对方发帖回填（剩 " + left(x.ClaimExpiresAt) + "）"
+	case SSubmit:
+		return "推文验证中"
+	case SVerified:
+		return "已发帖，留存至 " + fmtTime(x.RecheckDueAt) + " 复检"
+	case SPayable:
+		return "请付款，剩 " + left(x.PayDeadlineAt)
+	case SOverdue:
+		return "已逾期 " + ago(x.OverdueAt) + "，请立即付款"
+	case SAwait:
+		if x.UnderpaidE8 > 0 && x.TopupMarkedAt == 0 && x.TopupRequested > 0 {
+			return "对方要求补差，请补付"
+		}
+		if x.UnderpaidE8 > 0 && x.TopupMarkedAt == 0 {
+			return "少付，等对方选择"
+		}
+		return "等对方确认到账（登记于 " + ago(x.MarkedPaidAt) + "）"
+	case SDisputed:
+		return "申诉处理中"
+	case SPaid:
+		return "完成于 " + fmtTime(x.ConfirmedAt)
+	case SVoid:
+		return "作废：" + x.VoidReason
+	case SExpired:
+		return "对方超时未提交，名额已释放"
+	case SDefault:
+		return "违约记录（欠款公示中）"
+	}
+	return subStatus(x.Status)
 }
