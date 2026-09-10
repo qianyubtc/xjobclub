@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-const subCols = `id,code,task_id,worker_id,variant_idx,status,prev_status,claimed_at,claim_expires_at,tweet_id,tweet_url,tweet_text,tweet_created_at,verify_attempts,verify_retries,last_error,next_verify_at,verified_at,recheck_due_at,recheck_flag,recheck_tries,payable_at,pay_deadline_at,overdue_at,reported_at,grace_until,marked_paid_at,marked_order_id,marked_note,underpaid_e8,topup_requested_at,topup_marked_at,confirmed_at,confirm_method,paid_amount_e8,late,void_reason,defaulted_at,self_deal,unreadable,created_at,updated_at`
+const subCols = `id,code,task_id,worker_id,variant_idx,status,prev_status,claimed_at,claim_expires_at,tweet_id,tweet_url,tweet_text,tweet_created_at,verify_attempts,verify_retries,last_error,next_verify_at,verified_at,recheck_due_at,recheck_flag,recheck_tries,payable_at,pay_deadline_at,overdue_at,reported_at,grace_until,marked_paid_at,marked_order_id,marked_note,underpaid_e8,topup_requested_at,topup_marked_at,topup_order_id,confirmed_at,confirm_method,paid_amount_e8,late,void_reason,defaulted_at,self_deal,unreadable,created_at,updated_at`
 
 func scanSub(r scanner) (*Submission, error) {
 	var x Submission
 	var late int64
-	err := r.Scan(&x.ID, &x.Code, &x.TaskID, &x.WorkerID, &x.VariantIdx, &x.Status, &x.PrevStatus, &x.ClaimedAt, &x.ClaimExpiresAt, &x.TweetID, &x.TweetURL, &x.TweetText, &x.TweetCreatedAt, &x.VerifyAttempts, &x.VerifyRetries, &x.LastError, &x.NextVerifyAt, &x.VerifiedAt, &x.RecheckDueAt, &x.RecheckFlag, &x.RecheckTries, &x.PayableAt, &x.PayDeadlineAt, &x.OverdueAt, &x.ReportedAt, &x.GraceUntil, &x.MarkedPaidAt, &x.MarkedOrderID, &x.MarkedNote, &x.UnderpaidE8, &x.TopupRequested, &x.TopupMarkedAt, &x.ConfirmedAt, &x.ConfirmMethod, &x.PaidAmountE8, &late, &x.VoidReason, &x.DefaultedAt, &x.SelfDeal, &x.Unreadable, &x.CreatedAt, &x.UpdatedAt)
+	err := r.Scan(&x.ID, &x.Code, &x.TaskID, &x.WorkerID, &x.VariantIdx, &x.Status, &x.PrevStatus, &x.ClaimedAt, &x.ClaimExpiresAt, &x.TweetID, &x.TweetURL, &x.TweetText, &x.TweetCreatedAt, &x.VerifyAttempts, &x.VerifyRetries, &x.LastError, &x.NextVerifyAt, &x.VerifiedAt, &x.RecheckDueAt, &x.RecheckFlag, &x.RecheckTries, &x.PayableAt, &x.PayDeadlineAt, &x.OverdueAt, &x.ReportedAt, &x.GraceUntil, &x.MarkedPaidAt, &x.MarkedOrderID, &x.MarkedNote, &x.UnderpaidE8, &x.TopupRequested, &x.TopupMarkedAt, &x.TopupOrderID, &x.ConfirmedAt, &x.ConfirmMethod, &x.PaidAmountE8, &late, &x.VoidReason, &x.DefaultedAt, &x.SelfDeal, &x.Unreadable, &x.CreatedAt, &x.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -176,12 +176,23 @@ func (s *Store) SetMarkedPaid(id int64, orderID, note string) (bool, error) {
 	if orderID != "" && s.count(`SELECT COUNT(*) FROM submissions WHERE marked_order_id=? AND id<>?`, orderID, id) > 0 {
 		return false, fmt.Errorf("这个币安订单编号已经用在别的记录上了")
 	}
+	if orderID != "" && s.count(`SELECT COUNT(*) FROM submissions WHERE topup_order_id=? AND id<>?`, orderID, id) > 0 {
+		return false, fmt.Errorf("这个币安订单编号已经用在别的记录上了")
+	}
 	now := ms()
-	res, err := s.db.Exec(`UPDATE submissions SET status='awaiting_confirm', marked_paid_at=?, marked_order_id=?, marked_note=?, updated_at=?,
-		late=CASE WHEN status='overdue' OR prev_status='overdue' OR overdue_at>0 THEN 1 ELSE late END,
-		topup_marked_at=CASE WHEN status='awaiting_confirm' AND underpaid_e8>0 THEN ? ELSE topup_marked_at END, topup_requested_at=0
-		WHERE id=? AND (status IN ('payable','overdue') OR (status='disputed' AND prev_status='overdue') OR (status='awaiting_confirm' AND underpaid_e8>0 AND topup_marked_at=0))`,
-		now, orderID, note, now, now, id)
+	// 少付后的补差登记：只写 topup_* 列，不动原标记（原订单号是证据）
+	res, err := s.db.Exec(`UPDATE submissions SET topup_order_id=?, topup_marked_at=?, topup_requested_at=0, updated_at=?
+		WHERE id=? AND status='awaiting_confirm' AND underpaid_e8>0 AND topup_marked_at=0 AND marked_order_id<>?`, orderID, now, now, id, orderID)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return true, nil
+	}
+	res, err = s.db.Exec(`UPDATE submissions SET status='awaiting_confirm', marked_paid_at=?, marked_order_id=?, marked_note=?, updated_at=?,
+		late=CASE WHEN status='overdue' OR prev_status='overdue' OR overdue_at>0 THEN 1 ELSE late END
+		WHERE id=? AND (status IN ('payable','overdue') OR (status='disputed' AND prev_status='overdue'))`,
+		now, orderID, note, now, id)
 	if err != nil {
 		return false, err
 	}

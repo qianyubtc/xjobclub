@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func (a *App) loadSub(w http.ResponseWriter, r *http.Request) (*Submission, *Tas
 	// 只有当事双方、管理员、受邀陪审员（通过申诉页）能看
 	if u == nil || (u.ID != x.WorkerID && u.ID != t.OwnerID && !a.isAdmin(u)) {
 		if u == nil && r.Method == http.MethodGet {
-			http.Redirect(w, r, "/login?next="+r.URL.RequestURI(), http.StatusFound)
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return nil, nil, nil, false
 		}
 		a.errorPage(w, r, http.StatusNotFound, "记录不存在", "")
@@ -135,7 +136,8 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	disputedOverdue := x.Status == SDisputed && x.PrevStatus == SOverdue
 	payState := x.Status == SPayable || x.Status == SOverdue || disputedOverdue || p.TopupE8 > 0
 	p.CanPay = p.IsOwner && payState && p.Payee.Gateway() && a.gwc != nil
-	p.CanMark = p.IsOwner && (x.Status == SPayable || x.Status == SOverdue || disputedOverdue || (p.TopupE8 > 0 && x.TopupMarkedAt == 0))
+	noOpenD := p.Dispute == nil || p.Dispute.Type != "D"
+	p.CanMark = p.IsOwner && noOpenD && (x.Status == SPayable || x.Status == SOverdue || disputedOverdue || (p.TopupE8 > 0 && x.TopupMarkedAt == 0))
 	p.CanConfirm = p.IsWorker && x.Status == SAwait
 	if p.TopupE8 > 0 {
 		p.Amount = fmtE8(p.TopupE8)
@@ -334,7 +336,10 @@ func (a *App) handleUnderpaid(w http.ResponseWriter, r *http.Request) {
 			a.flash(w, "已按实付金额完成")
 		}
 	case "topup":
-		a.st.SetTopupRequested(x.ID)
+		if ok, _ := a.st.SetTopupRequested(x.ID); !ok {
+			a.flash(w, "已经要求过补差，等发布方处理")
+			break
+		}
 		a.notify(t.OwnerID, "pay", "接单方要求补足差额", fmt.Sprintf("任务 %s 实付 %s U，少 %s U，请补付。", t.Code, fmtE8(x.UnderpaidE8), fmtE8(t.RewardE8-x.UnderpaidE8)), x.Path())
 		a.st.Audit(u.ID, "sub.topup_requested", "submission", x.ID, nil, a.ip(r))
 		a.flash(w, "已通知发布方补差")
@@ -342,8 +347,13 @@ func (a *App) handleUnderpaid(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }
 
-// afterPaid 完成后的收尾：审计、通知、解冻、关掉多余网关订单。
+// afterPaid 自然付款路径（网关核销 / 接单方确认 / 管理员置为完成）的收尾：审计、通知、解冻、关单、自动结掉 A/B 申诉。
 func (a *App) afterPaid(x *Submission, t *Task, actor int64, method string) {
+	a.settlePaid(x, t, actor, method, true)
+}
+
+// settlePaid touchDispute=false 用于裁决路径：申诉由 applyResolution 自己结案，不重复结案也不记警告。
+func (a *App) settlePaid(x *Submission, t *Task, actor int64, method string, touchDispute bool) {
 	a.st.Audit(actor, "sub.paid", "submission", x.ID, map[string]any{"method": method}, "")
 	a.closePendingForSub(x.ID)
 	if a.st.PublisherFrozen(t.OwnerID) == 0 {
@@ -351,10 +361,13 @@ func (a *App) afterPaid(x *Submission, t *Task, actor int64, method string) {
 	}
 	a.notify(t.OwnerID, "pay", "一条记录已完成", fmt.Sprintf("任务 %s：接单方已确认收款。", t.Code), x.Path())
 	a.notify(x.WorkerID, "pay", "记录已完成", fmt.Sprintf("任务 %s 的报酬已确认到账。", t.Code), x.Path())
+	if !touchDispute {
+		return
+	}
 	if d, _ := a.st.OpenDisputeForSub(x.ID); d != nil && (d.Type == "A" || d.Type == "B") {
 		a.st.ResolveDispute(d.ID, "resolved_by_payment", "款项已确认到账，申诉自动结案", 0)
 		a.st.Audit(0, "dispute.auto_close", "dispute", d.ID, nil, "")
-		if d.Type == "B" && x.MarkedPaidAt > 0 && x.MarkedPaidAt < d.CreatedAt {
+		if d.Type == "B" && method != "admin" && x.MarkedPaidAt > 0 && x.MarkedPaidAt < d.CreatedAt {
 			// 先标记、被申诉后款才到：记一次虚假标记警告
 			if owner, _ := a.st.GetUserByID(t.OwnerID); owner != nil {
 				a.warnPublisher(owner, "标记已付后款项才到账（B 类申诉期间）", d.ID, x.Path(), "")

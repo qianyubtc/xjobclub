@@ -919,3 +919,147 @@ func TestTopupRequestDoesNotLock(t *testing.T) {
 		t.Fatalf("confirm after top-up mark should pay full: %s %d", x.Status, x.PaidAmountE8)
 	}
 }
+
+// ---- 第二轮审查回归：裁决路径不重复记警告、补差订单号独立、认证少付不算认证、改名后的主页地址 ----
+
+func TestResolutionPathsWarnOnce(t *testing.T) {
+	e := newEnv(t, "")
+	alice, kim, admin := e.browser("alice"), e.browser("kim"), e.browser("admin")
+	au := alice.register("alice", "9501")
+	kim.register("kim", "9502")
+	admin.register("admin", "9503")
+	alice.setUID("80001")
+	alice.certify("payer-A95")
+	kim.setUID("80002")
+	task := alice.publish(taskForm(url.Values{"slots": {"3"}}))
+	warnings := func() int64 {
+		return e.a.st.count(`SELECT COUNT(*) FROM audit_log WHERE action='user.warning' AND target_type='user' AND target_id=?`, au.ID)
+	}
+	openB := func(tid string) (*Submission, *Dispute) {
+		x := kim.claim(task)
+		e.synd.add(mockTweet{ID: tid, Text: task.Contents[0], UserID: "9502", Handle: "kim"})
+		x = kim.submitTweet(x, tid)
+		if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {"4520219220688" + tid}}); resp.StatusCode != 302 {
+			t.Fatal("mark failed")
+		}
+		if resp, _ := kim.post("/s/"+x.Code+"/dispute", url.Values{"type": {"B"}, "text": {"没有收到这笔款项"}}); resp.StatusCode != 302 {
+			t.Fatal("dispute failed")
+		}
+		d, _ := e.a.st.OpenDisputeForSub(x.ID)
+		return x, d
+	}
+	// b_wrong_uid：发布方无过错，不能记警告
+	x1, d1 := openB("95001")
+	if resp, _ := admin.post("/admin/dispute/"+d1.Code+"/resolve", url.Values{"resolution": {"b_wrong_uid"}, "note": {"UID 填错"}}); resp.StatusCode != 302 {
+		t.Fatal("resolve wrong_uid failed")
+	}
+	x1, _ = e.a.st.GetSubByID(x1.ID)
+	if x1.Status != SPaid || warnings() != 0 {
+		t.Fatalf("wrong_uid: status=%s warnings=%d", x1.Status, warnings())
+	}
+	// b_late：恰好一次警告，不上黑名单
+	kim2 := e.browser("kim2")
+	kim2.register("kim2", "9504")
+	kim2.setUID("80004")
+	x2 := kim2.claim(task)
+	e.synd.add(mockTweet{ID: "95002", Text: task.Contents[0], UserID: "9504", Handle: "kim2"})
+	x2 = kim2.submitTweet(x2, "95002")
+	alice.post("/s/"+x2.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068895002"}})
+	kim2.post("/s/"+x2.Code+"/dispute", url.Values{"type": {"B"}, "text": {"没有收到这笔款项"}})
+	d2, _ := e.a.st.OpenDisputeForSub(x2.ID)
+	if resp, _ := admin.post("/admin/dispute/"+d2.Code+"/resolve", url.Values{"resolution": {"b_late"}, "note": {"申诉后才到账"}}); resp.StatusCode != 302 {
+		t.Fatal("resolve b_late failed")
+	}
+	au, _ = e.a.st.GetUserByID(au.ID)
+	x2, _ = e.a.st.GetSubByID(x2.ID)
+	if x2.Status != SPaid || !x2.Late || warnings() != 1 || au.Status != "active" {
+		t.Fatalf("b_late: status=%s late=%v warnings=%d user=%s", x2.Status, x2.Late, warnings(), au.Status)
+	}
+	// 自然路径：接单方申诉后自己确认收到 → 也是一次警告（累计 2 → 上榜），验证自然路径仍记警告
+	kim3 := e.browser("kim3")
+	kim3.register("kim3", "9505")
+	kim3.setUID("80005")
+	x3 := kim3.claim(task)
+	e.synd.add(mockTweet{ID: "95003", Text: task.Contents[0], UserID: "9505", Handle: "kim3"})
+	x3 = kim3.submitTweet(x3, "95003")
+	alice.post("/s/"+x3.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068895003"}})
+	kim3.post("/s/"+x3.Code+"/dispute", url.Values{"type": {"B"}, "text": {"没有收到这笔款项"}})
+	e.a.st.RestoreFromDispute(x3.ID, SAwait) // 模拟：申诉中款到了，接单方回来确认
+	kim3.post("/s/"+x3.Code+"/confirm", nil)
+	au, _ = e.a.st.GetUserByID(au.ID)
+	if warnings() != 2 || au.Status != "blacklisted" {
+		t.Fatalf("second natural warning should blacklist: warnings=%d user=%s", warnings(), au.Status)
+	}
+}
+
+func TestTopupOrderKeptSeparately(t *testing.T) {
+	e := newEnv(t, "")
+	alice, lee := e.browser("alice"), e.browser("lee")
+	alice.register("alice", "9601")
+	lee.register("lee", "9602")
+	alice.setUID("81001")
+	alice.certify("payer-A96")
+	lee.bindKey("81002")
+	task := alice.publish(taskForm(url.Values{"reward": {"2"}}))
+	x := lee.claim(task)
+	e.synd.add(mockTweet{ID: "96001", Text: task.Contents[0], UserID: "9602", Handle: "lee"})
+	x = lee.submitTweet(x, "96001")
+	alice.post("/s/"+x.Code+"/pay/order", nil)
+	p, _ := e.a.st.ActivePayment(x.ID, "gateway")
+	e.gw.pay(t, p.MerchantOrderID, "payer-A96", "1.2")
+	x, _ = e.a.st.GetSubByID(x.ID)
+	first := x.MarkedPaidAt
+	if resp, _ := lee.post("/s/"+x.Code+"/underpaid", url.Values{"action": {"topup"}}); resp.StatusCode != 302 {
+		t.Fatal("topup request failed")
+	}
+	// 重复要求补差应被拒绝（flash），状态不变
+	lee.post("/s/"+x.Code+"/underpaid", url.Values{"action": {"topup"}})
+	if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068896001"}}); resp.StatusCode != 302 {
+		t.Fatal("topup mark failed")
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.TopupOrderID != "452021922068896001" || x.MarkedPaidAt != first || x.MarkedOrderID != "" || x.TopupRequested != 0 {
+		t.Fatalf("topup fields: %+v", x)
+	}
+	// 接单方页面应出现按全额完成的按钮
+	if _, body := lee.get(x.Path()); !strings.Contains(body, "已收到补差，按全额完成") {
+		t.Fatal("worker page should offer full-amount confirm after top-up mark")
+	}
+	lee.post("/s/"+x.Code+"/confirm", nil)
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SPaid || x.PaidAmountE8 != 200000000 {
+		t.Fatalf("after confirm: %s %d", x.Status, x.PaidAmountE8)
+	}
+}
+
+func TestCertUnderpaidNotCertified(t *testing.T) {
+	e := newEnv(t, "")
+	alice := e.browser("alice")
+	au := alice.register("alice", "9701")
+	alice.setUID("82001")
+	alice.post("/me/cert", nil)
+	p, _ := e.a.st.ActiveCertPayment(au.ID)
+	e.gw.pay(t, p.MerchantOrderID, "payer-A97", "0.05")
+	au, _ = e.a.st.GetUserByID(au.ID)
+	if au.CertPaidAt != 0 || au.PayerID != "payer-A97" {
+		t.Fatalf("underpaid cert must anchor payer but not certify: %+v", au)
+	}
+}
+
+func TestStaleHandleProfilePath(t *testing.T) {
+	e := newEnv(t, "")
+	old := e.browser("old")
+	ou := old.register("dupname", "9801")
+	imp := e.browser("imp")
+	imp.register("dupname", "9802")
+	ou, _ = e.a.st.GetUserByID(ou.ID)
+	if !ou.HandleStale || ou.Path() != "/u/xid:9801" {
+		t.Fatalf("stale user path: %s", ou.Path())
+	}
+	if resp, body := old.get(ou.Path()); resp.StatusCode != 200 || !strings.Contains(body, "9801") {
+		t.Fatalf("xid profile: %d", resp.StatusCode)
+	}
+	if resp, body := old.get("/u/dupname"); resp.StatusCode != 200 || !strings.Contains(body, "9802") {
+		t.Fatalf("handle profile should be the new owner: %d", resp.StatusCode)
+	}
+}

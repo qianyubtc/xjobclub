@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,8 +55,18 @@ func (a *App) createOrder(x *Submission, t *Task, payee *PayProfile, amountE8 in
 }
 
 func (a *App) callbackURL() string {
-	// 网关与平台同机时走内网地址，不绕公网
-	return "http://" + strings.TrimPrefix(a.cfg.Listen, "0.0.0.0") + "/bpg/notify"
+	if a.cfg.CallbackURL != "" {
+		return a.cfg.CallbackURL
+	}
+	// 网关与平台同机时走内网地址，不绕公网；通配监听地址换成回环
+	host, port, err := net.SplitHostPort(a.cfg.Listen)
+	if err != nil {
+		return "http://127.0.0.1:8125/bpg/notify"
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/bpg/notify"
 }
 
 // handlePayOrder 发布方点「去付款」：开（或复用）网关订单。
@@ -109,8 +120,19 @@ func (a *App) handlePayClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	boid := strings.TrimSpace(r.FormValue("binance_order_id"))
+	isFetch := r.Header.Get("X-Requested-With") == "fetch"
+	reply := func(status int, v map[string]any) {
+		if isFetch {
+			replyJSON(w, status, v)
+			return
+		}
+		if m, _ := v["msg"].(string); m != "" {
+			a.flash(w, m)
+		}
+		http.Redirect(w, r, x.Path()+"#pay", http.StatusFound)
+	}
 	if !reBinanceOrder.MatchString(boid) {
-		replyJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "msg": "订单编号应为 18 位数字"})
+		reply(http.StatusBadRequest, map[string]any{"ok": false, "msg": "订单编号应为 18 位数字"})
 		return
 	}
 	var p *Payment
@@ -121,17 +143,17 @@ func (a *App) handlePayClaim(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == nil {
 		// 没有在途会话：退回手动登记流程
-		replyJSON(w, http.StatusOK, map[string]any{"ok": false, "manual": true, "msg": "结账会话已过期，请用「手动登记」提交这个订单号"})
+		reply(http.StatusOK, map[string]any{"ok": false, "manual": true, "msg": "结账会话已过期，请用「手动登记」提交这个订单号"})
 		return
 	}
 	code, err := a.gatewayClaim(p, boid)
 	if err != nil {
-		replyJSON(w, http.StatusOK, map[string]any{"ok": false, "msg": err.Error()})
+		reply(http.StatusOK, map[string]any{"ok": false, "msg": err.Error()})
 		return
 	}
 	a.syncPaymentNow(p)
 	msgs := map[string]string{"OK": "核对成功，已到账", "UNDERPAID": "查到了这笔转账但金额不足", "NOT_FOUND": "没查到这笔转账：确认订单编号与收款账号，币安到账后再试，或改用手动登记", "CONSUMED": "这笔转账已被别的订单用过了", "CURRENCY": "币种不对", "STATE": "订单当前状态不能回填"}
-	replyJSON(w, http.StatusOK, map[string]any{"ok": code == "OK", "code": code, "msg": msgs[code]})
+	reply(http.StatusOK, map[string]any{"ok": code == "OK", "code": code, "msg": msgs[code]})
 }
 
 func (a *App) gatewayClaim(p *Payment, boid string) (string, error) {
@@ -206,12 +228,13 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string) {
 		if u == nil {
 			return
 		}
-		if err := a.st.SetPayerID(u.ID, payerID, true); errors.Is(err, ErrPayerTaken) {
+		enough := actualE8 >= a.cfg.CertFeeE8
+		if err := a.st.SetPayerID(u.ID, payerID, enough); errors.Is(err, ErrPayerTaken) {
 			a.st.Audit(0, "user.payer_conflict", "user", u.ID, map[string]any{"payer_id": payerID}, "")
 			a.notify(u.ID, "account", "认证付款的付款账户已被其他账号使用", "同一个币安账户只能认证一个平台账号，请联系管理员。", "/me/pay")
 			return
 		}
-		if actualE8 < a.cfg.CertFeeE8 {
+		if !enough {
 			a.notify(u.ID, "account", "认证付款金额不足", fmt.Sprintf("实付 %s U，需要 %s U。", fmtE8(actualE8), a.cfg.CertFeeAmount), "/me/cert")
 			return
 		}
@@ -232,7 +255,10 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string) {
 	if payerID != "" {
 		if owner, _ := a.st.GetUserByID(t.OwnerID); owner != nil {
 			if owner.PayerID == "" {
-				a.st.SetPayerID(owner.ID, payerID, false)
+				if err := a.st.SetPayerID(owner.ID, payerID, false); errors.Is(err, ErrPayerTaken) {
+					a.st.Audit(0, "pay.payer_conflict", "user", owner.ID, map[string]any{"payer_id": payerID, "submission": x.Code}, "")
+					log.Printf("[warn] 付款账户冲突：用户 #%d 用了已认证给他人的 payer %s（记录 %s）", owner.ID, payerID, x.Code)
+				}
 			} else if owner.PayerID != payerID {
 				a.st.Audit(0, "pay.payer_mismatch", "submission", x.ID, map[string]any{"expected": owner.PayerID, "got": payerID}, "")
 			}
@@ -483,6 +509,7 @@ func (a *App) handlePayBind(w http.ResponseWriter, r *http.Request) {
 		p.ReceiveEmail = old.ReceiveEmail
 	}
 	if err := a.st.UpsertPayProfile(p); err != nil {
+		a.gwc.DisableAccount(acct.AccountID) // 本站没记下这个账号，别让网关白轮询
 		if errors.Is(err, ErrAccountTaken) {
 			a.flash(w, "这把 API Key 已经被另一个账号绑定了")
 		} else {

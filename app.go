@@ -143,7 +143,28 @@ func (a *App) funcs() template.FuncMap {
 			return m
 		},
 		"stClass": stClass,
-		"tier":    func(name string) string { return name },
+		"taskStatus": func(s string) string {
+			return map[string]string{"open": "接单中", "paused": "已暂停", "closed": "已关闭"}[s]
+		},
+		"payStatus": func(s string) string {
+			if v, ok := map[string]string{"pending": "等待到账", "paid": "已到账", "underpaid": "少付", "expired": "已过期", "closed": "已关闭"}[s]; ok {
+				return v
+			}
+			return s
+		},
+		"methodText": func(s string) string {
+			if v, ok := map[string]string{"gateway": "网关自动核销", "manual": "接单方确认", "admin": "管理员核定"}[s]; ok {
+				return v
+			}
+			return s
+		},
+		"caseStatus": func(s string) string {
+			if v, ok := map[string]string{"voting": "投票中", "closed": "已结案", "escalated": "已转管理员"}[s]; ok {
+				return v
+			}
+			return s
+		},
+		"tier": func(name string) string { return name },
 		"nl2br": func(s string) template.HTML {
 			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
 		},
@@ -286,7 +307,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
+	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
 	if r.URL.Path != "/bpg/notify" {
 		limit := int64(64 << 10)
 		if strings.HasPrefix(r.URL.Path, "/d/") && strings.HasSuffix(r.URL.Path, "/message") {

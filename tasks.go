@@ -516,7 +516,7 @@ func (a *App) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		}
 	case "resume":
 		if t.Status == "paused" {
-			if a.st.PublisherFrozen(u.ID) > 0 {
+			if a.st.PublisherFrozen(t.OwnerID) > 0 {
 				err = errors.New("有逾期未付记录，付清后才能恢复接单")
 			} else if t.DeadlineAt <= ms() {
 				err = errors.New("任务已过截止时间，请先延长截止")

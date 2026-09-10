@@ -39,7 +39,7 @@
 {{end}}
 {{define "scripts"}}<script>
 (function(){
-  function wlen(s){s=s.normalize('NFC');var n=0;s=s.replace(/\bhttps?:\/\/[^\s<>"']+|\bwww\.[^\s<>"']+/gi,function(){n+=23;return ' '});
+  function wlen(s){s=s.normalize('NFC');var n=0;s=s.replace(/\bhttps?:\/\/[^\s<>"']+|\bwww\.[^\s<>"']+/gi,function(){n+=23;return ''});
     for(var ch of s){var c=ch.codePointAt(0);if(c===32||c===10){n++;continue}n+=(c<=0x10FF||(c>=0x2000&&c<=0x200D)||(c>=0x2010&&c<=0x201F)||(c>=0x2032&&c<=0x2037))?1:2}return n}
   var ad=document.querySelector('input[name=ad_tag]');
   function upd(){document.querySelectorAll('textarea[name^=content]').forEach(function(t){var c=document.querySelector('.count[data-for='+t.id+']');if(!c)return;var v=t.value;if(ad&&ad.checked&&v.trim()&&!/#广告|#推广|#ad\b|#sponsored/i.test(v))v=v.trim()+' #广告';var n=v.trim()?wlen(v):0;c.textContent=n+' / 280';c.classList.toggle('over',n>280)})}

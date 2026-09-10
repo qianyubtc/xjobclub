@@ -37,7 +37,13 @@ func (u *User) Name() string {
 
 func (u *User) XURL() string { return "https://x.com/" + u.Handle }
 
-func (u *User) Path() string { return "/u/" + u.Handle }
+// Path 主页地址：用户名被顶替（HandleStale）后按 X 数字 ID 定位，避免链接指向新占用者。
+func (u *User) Path() string {
+	if u.HandleStale {
+		return "/u/xid:" + u.XID
+	}
+	return "/u/" + u.Handle
+}
 
 func (u *User) Blacklisted() bool { return u.Status == "blacklisted" || u.Status == "banned" }
 
@@ -165,6 +171,7 @@ type Submission struct {
 	UnderpaidE8    int64 // 网关少付：实付金额（0 = 无少付）
 	TopupRequested int64 // 接单方要求补差的时间（期间不锁定接单方）
 	TopupMarkedAt  int64 // 发布方登记补差订单号的时间
+	TopupOrderID   string
 	ConfirmedAt    int64
 	ConfirmMethod  string
 	PaidAmountE8   int64

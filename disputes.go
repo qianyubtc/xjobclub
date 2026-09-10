@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,6 +38,7 @@ type disputePage struct {
 	Err        string
 	Resolution []resOption
 	BL         *BlacklistEntry
+	HideOpener bool
 }
 
 type resOption struct{ Code, Label string }
@@ -228,7 +230,7 @@ func (a *App) loadDispute(w http.ResponseWriter, r *http.Request) (*Dispute, *Us
 	}
 	if d == nil || !a.canSeeDispute(d, u) {
 		if u == nil && r.Method == http.MethodGet {
-			http.Redirect(w, r, "/login?next="+r.URL.RequestURI(), http.StatusFound)
+			http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return nil, nil, false
 		}
 		a.errorPage(w, r, http.StatusNotFound, "申诉不存在", "")
@@ -265,6 +267,10 @@ func (a *App) buildDisputePage(w http.ResponseWriter, r *http.Request, d *Disput
 	}
 	p.IsParty = u.ID == d.OpenerID || u.ID == d.AgainstID
 	p.CanPost = (p.IsParty || p.IsAdmin) && d.Status != "resolved"
+	if d.Type == "E" {
+		p.HideOpener = !p.IsAdmin && u.ID != d.OpenerID // 举报人对被举报方匿名
+		p.CanPost = p.IsAdmin || u.ID == d.OpenerID
+	}
 	p.CanAppeal = p.IsParty && d.Status == "appeal" && d.AppealBy == 0
 	if d.JuryCaseID > 0 {
 		p.Case, _ = a.st.GetJuryCase(d.JuryCaseID)
@@ -331,6 +337,9 @@ func (a *App) handleDisputeMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isParty := u.ID == d.OpenerID || u.ID == d.AgainstID
+	if d.Type == "E" && u.ID == d.AgainstID && !a.isAdmin(u) {
+		isParty = false // 被举报方不能给匿名举报人留言
+	}
 	if (!isParty && !a.isAdmin(u)) || d.Status == "resolved" {
 		a.errorPage(w, r, http.StatusForbidden, "不能留言", "")
 		return
@@ -384,11 +393,17 @@ func (a *App) handleDisputeMessage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	other := d.AgainstID
-	if u.ID == d.AgainstID {
-		other = d.OpenerID
+	if author == 0 {
+		for _, id := range []int64{d.OpenerID, d.AgainstID} {
+			a.notify(id, "dispute", "申诉 "+d.Code+" 管理员留言", truncate(text, 60), d.Path())
+		}
+	} else {
+		other := d.AgainstID
+		if u.ID == d.AgainstID {
+			other = d.OpenerID
+		}
+		a.notify(other, "dispute", "申诉 "+d.Code+" 有新留言", truncate(text, 60), d.Path())
 	}
-	a.notify(other, "dispute", "申诉 "+d.Code+" 有新留言", truncate(text, 60), d.Path())
 	http.Redirect(w, r, d.Path()+"#msgs", http.StatusFound)
 }
 
@@ -483,7 +498,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 		case "b_late":
 			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
 				a.st.db.Exec(`UPDATE submissions SET late=1 WHERE id=?`, x.ID)
-				a.afterPaid(x, t, by, "admin")
+				a.settlePaid(x, t, by, "admin", false)
 			}
 			if owner != nil {
 				a.warnPublisher(owner, "虚假标记后补付（裁决）", d.ID, x.Path(), ip)
@@ -498,11 +513,11 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			a.notify(x.WorkerID, "pay", "裁决：款项少付", fmt.Sprintf("实付 %s U，你可以接受或要求补差。", fmtE8(amt)), x.Path())
 		case "b_wrong_uid":
 			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
-				a.afterPaid(x, t, by, "admin")
+				a.settlePaid(x, t, by, "admin", false)
 			}
 		case "b_worker_lied":
 			if ok, _ := a.st.SetPaid(x.ID, "admin", t.RewardE8); ok {
-				a.afterPaid(x, t, by, "admin")
+				a.settlePaid(x, t, by, "admin", false)
 			}
 			if worker != nil {
 				a.blacklistUser(worker, "worker", "收到款项却称未收到（B 类申诉查实）", d.ID, ip)
@@ -545,9 +560,12 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			return ErrState
 		}
 		if resolution == "upheld" {
-			if ok, _ := a.st.SetVoid(x.ID, []string{SPayable, SOverdue}, "裁决：推文不合格"); ok {
-				a.closePendingForSub(x.ID)
+			ok, _ := a.st.SetVoid(x.ID, []string{SPayable, SOverdue, SAwait}, "裁决：推文不合格")
+			if !ok {
+				return errors.New("记录当前状态不能作废（可能已完成）")
 			}
+			a.st.db.Exec(`UPDATE submissions SET marked_paid_at=0, marked_order_id='', marked_note='', updated_at=? WHERE id=? AND status='void'`, ms(), x.ID)
+			a.closePendingForSub(x.ID)
 			a.st.Audit(by, "sub.void", "submission", x.ID, map[string]any{"reason": "D 类申诉成立"}, ip)
 		} else {
 			paused := ms() - d.CreatedAt

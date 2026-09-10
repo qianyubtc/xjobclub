@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -117,6 +118,7 @@ var schema = []string{
 		underpaid_e8 INTEGER NOT NULL DEFAULT 0,
 		topup_requested_at INTEGER NOT NULL DEFAULT 0,
 		topup_marked_at INTEGER NOT NULL DEFAULT 0,
+		topup_order_id TEXT NOT NULL DEFAULT '',
 		confirmed_at INTEGER NOT NULL DEFAULT 0,
 		confirm_method TEXT NOT NULL DEFAULT '',
 		paid_amount_e8 INTEGER NOT NULL DEFAULT 0,
@@ -230,7 +232,26 @@ func openStore(path string) (*Store, error) {
 			return nil, err
 		}
 	}
+	// 老库补列：ALTER 重复执行会报 duplicate column，忽略即可。以后每加一列都要在这里补一条。
+	for _, q := range migrations {
+		if _, err := db.Exec(q); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, fmt.Errorf("迁移失败 %q: %w", q, err)
+		}
+	}
 	return &Store{db: db}, nil
+}
+
+// migrations 给旧库补列（幂等）。列的默认值必须与 schema 里一致。
+var migrations = []string{
+	`ALTER TABLE submissions ADD COLUMN verify_retries INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN topup_requested_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN topup_marked_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN topup_order_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE submissions ADD COLUMN self_deal INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN unreadable INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE users ADD COLUMN jury_noshow INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE users ADD COLUMN jury_banned_until INTEGER NOT NULL DEFAULT 0`,
 }
 
 func (s *Store) Close() { s.db.Close() }

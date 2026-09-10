@@ -95,7 +95,7 @@ type TaskFilter struct {
 }
 
 func (s *Store) ListOpenTasks(f TaskFilter, limit, offset int) ([]*Task, int64, error) {
-	where := `WHERE status='open' AND deadline_at>?`
+	where := `WHERE status='open' AND deadline_at>? AND slots_total>(SELECT COUNT(*) FROM submissions x WHERE x.task_id=tasks.id AND x.status NOT IN ('expired','void'))`
 	args := []any{ms()}
 	if f.MinRewardE8 > 0 {
 		where += ` AND reward_e8>=?`
@@ -114,14 +114,7 @@ func (s *Store) ListOpenTasks(f TaskFilter, limit, offset int) ([]*Task, int64, 
 	if err != nil {
 		return nil, 0, err
 	}
-	// 满额的不展示在大厅（但仍可通过链接访问）
-	var out []*Task
-	for _, t := range ts {
-		if t.Left() > 0 {
-			out = append(out, t)
-		}
-	}
-	return out, total, nil
+	return ts, total, nil
 }
 
 func (s *Store) TasksByOwner(ownerID int64) ([]*Task, error) {

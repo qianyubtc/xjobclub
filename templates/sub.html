@@ -4,7 +4,7 @@
   <div class="row between"><h1 style="margin:0">记录 <code>{{.X.Code}}</code></h1><span class="st {{stClass .X.Status}}" id="stPill" style="font-size:14px">{{subStatus .X.Status}}</span></div>
   <div class="kv" style="margin-top:10px">
     <span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> <code>{{.T.Code}}</code></span>
-    <span class="k">报酬</span><span class="v amt">{{amt .T.RewardE8}} U{{if .X.UnderpaidE8}} <span class="st warn">实收 {{amt .X.UnderpaidE8}} U（少付）</span>{{end}}{{if eq .X.Status "paid"}} <span class="muted">实付 {{amt .X.PaidAmountE8}} U · {{.X.ConfirmMethod}}{{if .X.Late}} · 逾期付款{{end}}</span>{{end}}</span>
+    <span class="k">报酬</span><span class="v amt">{{amt .T.RewardE8}} U{{if .X.UnderpaidE8}} <span class="st warn">实收 {{amt .X.UnderpaidE8}} U（少付）</span>{{end}}{{if eq .X.Status "paid"}} <span class="muted">实付 {{amt .X.PaidAmountE8}} U · {{methodText .X.ConfirmMethod}}{{if .X.Late}} · 逾期付款{{end}}</span>{{end}}</span>
     <span class="k">发布方</span><span class="v">{{if .Owner}}{{template "usermini" .Owner}}{{end}}</span>
     <span class="k">接单方</span><span class="v">{{if .Worker}}{{template "usermini" .Worker}}{{end}}</span>
     {{if .X.TweetID}}<span class="k">推文</span><span class="v"><a href="https://x.com/i/web/status/{{.X.TweetID}}" target="_blank" rel="noopener">x.com/i/web/status/{{.X.TweetID}}</a></span>{{end}}
@@ -44,7 +44,13 @@
 <section class="card">
   <h2 style="margin-top:0">请核对到账</h2>
   {{if .X.UnderpaidE8}}<div class="notice warn">网关确认到账 <b>{{amt .X.UnderpaidE8}} U</b>，少于应付 {{amt .T.RewardE8}} U。</div>
-    <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>
+    {{if .X.TopupMarkedAt}}<p>发布方已登记补差{{if .X.TopupOrderID}}，币安订单 <code>{{.X.TopupOrderID}}</code>{{end}}（{{ftime .X.TopupMarkedAt}}）。请到币安 App 核对补差是否到账。</p>
+      <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到补差、合计 {{amt .T.RewardE8}} U？确认后记录按全额完成。"><button class="btn">✅ 已收到补差，按全额完成</button></form>
+      <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">没收到补差，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
+      {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>补差没到账？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button></form></details>{{end}}{{end}}
+    {{else if .X.TopupRequested}}<div class="notice">已要求发布方补差 {{amt .TopupE8}} U（{{ago .X.TopupRequested}}），等待对方付款；期间不影响你接单。补差到账会自动完成，发布方手动登记后这里会出现确认按钮。</div>
+      <div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn ghost sm">不等了，按实付 {{amt .X.UnderpaidE8}} U 完成</button></form></div>
+    {{else}}<div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>{{end}}
   {{else}}<p>发布方于 {{ftime .X.MarkedPaidAt}} 标记已付{{if .X.MarkedOrderID}}，币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}。请打开币安 App → 支付 → 交易记录核对。</p>
     <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .T.RewardE8}} U？确认后记录完成，不可撤销。"><button class="btn">✅ 已收到，完成</button></form>
     {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉即解除你的锁定。如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
@@ -71,7 +77,7 @@
       {{if .QR}}<img class="qr" src="data:image/png;base64,{{.QR}}" alt="收款二维码"><div class="hint" style="text-align:center">币安 App 首页「扫一扫」→ 输入金额 {{.ActivePay.PayAmount}}</div>{{end}}
       <div class="hint">币安 App → 底部「支付」→「转账」→ 收款方输入 UID → 金额填 <b>{{.ActivePay.PayAmount}}</b> → 转账。<span class="spin" id="paySpin"></span><span id="payMsg">等待到账，本页自动更新</span></div>
       <details class="fold"><summary>付了但一直没确认？</summary>
-        <form id="claimForm"><label>币安订单编号（18 位数字，转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" required><button class="btn sec sm" style="margin-top:8px">让网关核对这笔转账</button><div class="hint" id="claimMsg"></div></form>
+        <form id="claimForm" method="post" action="/s/{{.X.Code}}/pay/claim"><label>币安订单编号（18 位数字，转账详情里有）</label><input name="binance_order_id" inputmode="numeric" maxlength="18" required><button class="btn sec sm" style="margin-top:8px">让网关核对这笔转账</button><div class="hint" id="claimMsg"></div></form>
         <div class="hint">网关看不到你的转账（地区限制、对方 Key 失效等）时，可改用下面的「手动登记」，由接单方确认。</div>
       </details>
     {{else}}
@@ -90,7 +96,7 @@
     {{template "markform" .}}
   {{end}}
 </section>
-{{else if eq .X.Status "awaiting_confirm"}}<section class="card"><p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。对方 24 小时内未处理会被锁定接单。</p></section>
+{{else if eq .X.Status "awaiting_confirm"}}<section class="card">{{if .X.TopupMarkedAt}}<p>补差已登记{{if .X.TopupOrderID}}（币安订单 <code>{{.X.TopupOrderID}}</code>）{{end}}，等待接单方确认后按全额完成。</p>{{else}}<p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。对方 24 小时内未处理会被锁定接单。</p>{{end}}</section>
 {{else if eq .X.Status "verified"}}<section class="card"><p>推文已验证，留存复检 {{ftime .X.RecheckDueAt}} 后进入待付款。</p></section>
 {{end}}
 {{range .DisputeOK}}{{if eq . "D"}}<section class="card"><details class="fold"><summary>复检未确认，推文有问题？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="D"><label>说明（之后可上传截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn sec sm" style="margin-top:8px">申诉：推文不合格</button><div class="hint">申诉期间付款倒计时暂停；不成立则顺延。</div></form></details></section>{{end}}{{end}}
@@ -103,7 +109,7 @@
   <form method="post" action="/admin/sub/{{.X.Code}}/verify" class="row"><input name="tweet_url" placeholder="推文链接" style="width:260px"><button class="btn sec sm">强制通过验证</button></form>
 </div></section>{{end}}
 
-{{if .Payments}}<section class="card"><h2 style="margin-top:0">付款单</h2><div class="tbl"><table><tr><th>网关单号</th><th>类型</th><th>应付</th><th>状态</th><th>实付</th><th>时间</th></tr>{{range .Payments}}<tr><td><code>{{.MerchantOrderID}}</code></td><td>{{.Kind}}</td><td class="num">{{.PayAmount}}</td><td><span class="st {{if eq .Status "paid"}}good{{else if eq .Status "pending"}}wait{{else if eq .Status "underpaid"}}warn{{else}}muted{{end}}">{{.Status}}</span></td><td class="num">{{if .ActualE8}}{{amt .ActualE8}}{{end}}</td><td class="small muted">{{ftime .CreatedAt}}</td></tr>{{end}}</table></div></section>{{end}}
+{{if .Payments}}<section class="card"><h2 style="margin-top:0">付款单</h2><div class="tbl"><table><tr><th>网关单号</th><th>类型</th><th>应付</th><th>状态</th><th>实付</th><th>时间</th></tr>{{range .Payments}}<tr><td><code>{{.MerchantOrderID}}</code></td><td>{{if eq .Kind "topup"}}补差{{else if eq .Kind "cert"}}认证{{else}}付款{{end}}</td><td class="num">{{.PayAmount}}</td><td><span class="st {{if eq .Status "paid"}}good{{else if eq .Status "pending"}}wait{{else if eq .Status "underpaid"}}warn{{else}}muted{{end}}">{{payStatus .Status}}</span></td><td class="num">{{if .ActualE8}}{{amt .ActualE8}}{{end}}</td><td class="small muted">{{ftime .CreatedAt}}</td></tr>{{end}}</table></div></section>{{end}}
 
 {{if .Disputes}}<section class="card"><h2 style="margin-top:0">申诉</h2>{{range .Disputes}}<div><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · <span class="st {{stClass .Status}}">{{dstatus .Status}}</span>{{if .Resolution}} · {{.ResolutionNote}}{{end}}</div>{{end}}</section>{{end}}
 
@@ -122,9 +128,10 @@
   var link=document.getElementById('intent'),c=document.getElementById('content');if(link&&c)window.bindIntent(link,function(){return c.textContent},document.getElementById('intentAlt'));
   var st={{.X.Status}},code={{.X.Code}},active={{if .ActivePay}}true{{else}}false{{end}},fails=0;
   var poll=(st==='submitted')||(active)||(st==='awaiting_confirm'&&{{if .IsOwner}}true{{else}}false{{end}});
-  function tick(){fetch('/s/'+code+'/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){fails=0;if(j.status!==st){location.reload();return}if(j.pay&&j.pay.status!=='pending'&&active){location.reload()}}).catch(function(){if(++fails>20)poll=false})}
-  if(poll)setInterval(tick,4000);
+  var timer=null;function stop(){if(timer){clearInterval(timer);timer=null}}
+  function tick(){fetch('/s/'+code+'/status',{cache:'no-store',redirect:'manual'}).then(function(r){if(!r.ok||r.type==='opaqueredirect'){throw new Error('bad')}return r.json()}).then(function(j){fails=0;if(j.status!==st){location.reload();return}if(j.pay&&j.pay.status!=='pending'&&active){location.reload()}}).catch(function(){if(++fails>=8){stop();if(window.toast)toast('已停止自动刷新，请手动刷新页面')}})}
+  if(poll)timer=setInterval(tick,4000);
   var cf=document.getElementById('claimForm');if(cf)cf.addEventListener('submit',function(e){e.preventDefault();var fd=new FormData(cf),m=document.getElementById('claimMsg');m.textContent='核对中…';
-    fetch('/s/'+code+'/pay/claim',{method:'POST',body:new URLSearchParams(fd)}).then(function(r){return r.json()}).then(function(j){m.textContent=j.msg||'';if(j.ok)setTimeout(function(){location.reload()},800)}).catch(function(){m.textContent='网络错误'})});
+    fetch('/s/'+code+'/pay/claim',{method:'POST',body:new URLSearchParams(fd),headers:{'X-Requested-With':'fetch'}}).then(function(r){return r.json()}).then(function(j){m.textContent=j.msg||'';if(j.ok)setTimeout(function(){location.reload()},800)}).catch(function(){m.textContent='网络错误'})});
 })();
 </script>{{end}}

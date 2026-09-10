@@ -112,12 +112,13 @@ type profilePage struct {
 }
 
 func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
-	h := normHandle(r.PathValue("handle"))
-	if h == "" {
-		a.errorPage(w, r, http.StatusNotFound, "用户不存在", "")
-		return
+	raw := r.PathValue("handle")
+	var u *User
+	if strings.HasPrefix(raw, "xid:") {
+		u, _ = a.st.GetUserByXID(strings.TrimPrefix(raw, "xid:"))
+	} else if h := normHandle(raw); h != "" {
+		u, _ = a.st.GetUserByHandle(h)
 	}
-	u, _ := a.st.GetUserByHandle(h)
 	if u == nil {
 		a.errorPage(w, r, http.StatusNotFound, "用户不存在", "")
 		return

@@ -21,10 +21,11 @@ type Config struct {
 	AuthorX   string
 
 	// BinancePayTool 网关（必填：没有网关就没有自动到账，也没有认证付款）
-	BPGURL   string
-	BPGKey   string
-	Currency string
-	OrderTTL int64 // 网关结账会话秒数
+	BPGURL      string
+	BPGKey      string
+	Currency    string
+	OrderTTL    int64  // 网关结账会话秒数
+	CallbackURL string // 网关回调地址（缺省按 LISTEN 拼内网地址）
 
 	// 管理员：X 用户名列表（小写），用自己的账号登录即有后台权限
 	AdminHandles map[string]bool
@@ -172,6 +173,7 @@ func loadConfig(path string) (*Config, error) {
 		BPGURL:      strings.TrimRight(get("BPG_URL", ""), "/"),
 		BPGKey:      get("BPG_KEY", ""),
 		Currency:    strings.ToUpper(get("CURRENCY", "USDT")),
+		CallbackURL: strings.TrimSpace(get("CALLBACK_URL", "")),
 		TrustProxy:  getBool("TRUST_PROXY", false),
 		TrustHeader: get("TRUST_PROXY_HEADER", "X-Forwarded-For"),
 		XTweetAPI:   strings.TrimRight(get("X_TWEET_API", "https://cdn.syndication.twimg.com"), "/"),

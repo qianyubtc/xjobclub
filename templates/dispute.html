@@ -1,7 +1,7 @@
 {{define "title"}}申诉 {{.D.Code}} · {{.SiteTitle}}{{end}}
 {{define "content"}}
 {{template "disputebody" .}}
-{{if .Case}}<section class="card"><h2 style="margin-top:0">小法庭</h2><p>案件 <a href="/court/{{.Case.ID}}">#{{.Case.ID}}</a> · {{if eq .Case.Status "voting"}}投票中，截止 {{ftime .Case.DeadlineAt}}（票数结案后公开）{{else}}{{.Case.Status}} · 支持发起方 {{.Case.VotesFor}} / 支持被诉方 {{.Case.VotesAgainst}} / 弃权 {{.Case.Abstain}}{{end}}</p>
+{{if .Case}}<section class="card"><h2 style="margin-top:0">小法庭</h2><p>案件 <a href="/court/{{.Case.ID}}">#{{.Case.ID}}</a> · {{if eq .Case.Status "voting"}}投票中，截止 {{ftime .Case.DeadlineAt}}（票数结案后公开）{{else}}{{caseStatus .Case.Status}} · 支持发起方 {{.Case.VotesFor}} / 支持被诉方 {{.Case.VotesAgainst}} / 弃权 {{.Case.Abstain}}{{end}}</p>
 {{if .Votes}}<ul class="small">{{range .Votes}}{{if .Reason}}<li>{{if eq .Vote "for"}}支持发起方{{else if eq .Vote "against"}}支持被诉方{{else}}弃权{{end}}：{{.Reason}}</li>{{end}}{{end}}</ul>{{end}}</section>{{end}}
 {{if .CanAppeal}}<section class="card"><h2 style="margin-top:0">上诉</h2><p class="small">小法庭裁决进入上诉期（至 {{ftime .D.AppealUntil}}），任一方可申请管理员复核一次，逾期自动生效。</p><form method="post" action="/d/{{.D.Code}}/appeal"><textarea name="text" required minlength="10" placeholder="上诉理由"></textarea><button class="btn sec" style="margin-top:8px">申请管理员复核</button></form></section>{{end}}
 {{if .CanPost}}<section class="card"><h2 style="margin-top:0">补充说明 / 上传证据</h2>
