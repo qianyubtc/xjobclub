@@ -46,6 +46,7 @@
 <section class="card">
   {{if .Mine}}<div class="notice">你在这个任务上有一条记录：<a href="{{.Mine.Path}}"><code>{{.Mine.Code}}</code></a> <span class="st {{stClass .Mine.Status}}">{{subStatus .Mine.Status}}</span></div>{{end}}
   {{if and .Me (not .Block)}}<form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单（锁定名额 {{durMin .T.ClaimTTLMin}}）</button></form>
+  <div class="ctabar"><div class="price">{{amt .T.RewardE8}}<small>U / 条</small></div><form method="post" action="/t/{{.T.Code}}/claim"><button class="btn" type="submit">接单 · 剩 {{.T.Left}}</button></form></div>
   <div class="hint">接单后按分配到的文案发帖，回填链接自动验证。发完再删会作废，留存期后复检。</div>
   {{else if .Me}}<div class="notice warn">{{.Block}}</div>{{else}}<div class="btns"><a class="btn" href="/login?next={{.T.Path}}">登录后接单</a><a class="btn sec" href="/register">用 X 注册</a></div>{{end}}
   {{if .Me}}<details class="fold" style="margin-top:14px"><summary>举报这个任务</summary><form method="post" action="/report/task/{{.T.Code}}"><label>理由（诈骗、违法、侮辱等）</label><textarea name="text" required minlength="5" maxlength="1000"></textarea><button class="btn sec sm" style="margin-top:8px">提交举报</button></form></details>{{end}}

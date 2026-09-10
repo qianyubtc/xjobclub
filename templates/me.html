@@ -12,21 +12,21 @@
 </section>
 <div class="tabs">
   <a href="/me" {{if eq .Tab ""}}class="on"{{end}}>待办{{if .Todo}} <span class="badge">{{.Todo}}</span>{{end}}</a>
-  <a href="/me?tab=tasks" {{if eq .Tab "tasks"}}class="on"{{end}}>我发布的（{{len .MyTasks}}）</a>
-  <a href="/me?tab=subs" {{if eq .Tab "subs"}}class="on"{{end}}>我接的（{{len .MySubs}}）</a>
+  <a href="/me?tab=tasks" {{if eq .Tab "tasks"}}class="on"{{end}}>发布的（{{len .MyTasks}}）</a>
+  <a href="/me?tab=subs" {{if eq .Tab "subs"}}class="on"{{end}}>接的（{{len .MySubs}}）</a>
   <a href="/me?tab=disputes" {{if eq .Tab "disputes"}}class="on"{{end}}>申诉（{{len .Disputes}}）</a>
   <a href="/me?tab=settings" {{if eq .Tab "settings"}}class="on"{{end}}>设置</a>
 </div>
 {{if eq .Tab ""}}
-  {{if .ToPay}}<section class="card"><h2 style="margin-top:0">待我付款（{{len .ToPay}}）</h2><div class="tbl"><table><tr><th>记录</th><th>任务</th><th>接单方</th><th>金额</th><th>状态</th><th></th></tr>{{range .ToPay}}{{template "subrow" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users .WorkerID))}}{{end}}</table></div></section>{{end}}
-  {{if .ToConfirm}}<section class="card"><h2 style="margin-top:0">待我确认到账（{{len .ToConfirm}}）</h2><div class="tbl"><table><tr><th>记录</th><th>任务</th><th>发布方</th><th>金额</th><th>状态</th><th></th></tr>{{range .ToConfirm}}{{template "subrow" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}</table></div></section>{{end}}
+  {{if .ToPay}}<section class="card"><div class="sec-h"><h2>待我付款</h2><span class="eyebrow">{{len .ToPay}} 单</span></div>{{range .ToPay}}{{template "subcard" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users .WorkerID))}}{{end}}</section>{{end}}
+  {{if .ToConfirm}}<section class="card"><div class="sec-h"><h2>待我确认到账</h2><span class="eyebrow">{{len .ToConfirm}} 单</span></div>{{range .ToConfirm}}{{template "subcard" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}</section>{{end}}
   {{if .Invites}}<section class="card"><h2 style="margin-top:0">陪审邀请（{{len .Invites}}）</h2>{{range .Invites}}<div><a href="/court/{{.ID}}">案件 #{{.ID}}</a> · 截止 {{ftime .DeadlineAt}}</div>{{end}}</section>{{end}}
-  {{if .Active}}<section class="card"><h2 style="margin-top:0">进行中的接单（{{len .Active}}）</h2><div class="tbl"><table><tr><th>记录</th><th>任务</th><th>发布方</th><th>金额</th><th>状态</th><th></th></tr>{{range .Active}}{{template "subrow" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}</table></div></section>{{end}}
-  {{if and (not .ToPay) (not .ToConfirm) (not .Active) (not .Invites)}}<section class="card"><p class="muted">没有待办。<a href="/">去大厅看看</a> 或 <a href="/new">发布任务</a>。</p></section>{{end}}
+  {{if .Active}}<section class="card"><div class="sec-h"><h2>进行中的接单</h2><span class="eyebrow">{{len .Active}} 单</span></div>{{range .Active}}{{template "subcard" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}</section>{{end}}
+  {{if and (not .ToPay) (not .ToConfirm) (not .Active) (not .Invites)}}<div class="empty"><div class="big">没有待办</div><p class="muted"><a href="/">去大厅接一单</a> 或 <a href="/new">发布任务</a></p></div>{{end}}
 {{else if eq .Tab "tasks"}}
   <section class="card">{{if .MyTasks}}<div class="tbl"><table><tr><th>编号</th><th>标题</th><th>单价</th><th>名额</th><th>状态</th><th>截止</th></tr>{{range .MyTasks}}<tr><td><a href="{{.Path}}"><code>{{.Code}}</code></a></td><td><a href="{{.Path}}">{{.Title}}</a></td><td class="num">{{amt .RewardE8}} U</td><td class="num">{{.DoneCount}} 完成 / {{.Used}} 占用 / {{.SlotsTotal}}</td><td><span class="st {{if eq .Status "open"}}good{{else if eq .Status "paused"}}warn{{else}}muted{{end}}">{{.Status}}</span></td><td class="small muted">{{fdate .DeadlineAt}}</td></tr>{{end}}</table></div>{{else}}<p class="muted">还没发布过任务。<a href="/new">发布一个</a></p>{{end}}</section>
 {{else if eq .Tab "subs"}}
-  <section class="card">{{if .MySubs}}<div class="tbl"><table><tr><th>记录</th><th>任务</th><th>发布方</th><th>金额</th><th>状态</th><th></th></tr>{{range .MySubs}}{{template "subrow" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}</table></div>{{else}}<p class="muted">还没接过任务。<a href="/">去大厅看看</a></p>{{end}}</section>
+  {{if .MySubs}}{{range .MySubs}}{{template "subcard" (dict "X" . "T" (index $.Tasks .TaskID) "Other" (index $.Users (index $.Tasks .TaskID).OwnerID))}}{{end}}{{else}}<div class="empty"><div class="big">还没接过单</div><p class="muted"><a href="/">去大厅看看</a></p></div>{{end}}
 {{else if eq .Tab "disputes"}}
   <section class="card">{{if .Disputes}}{{range .Disputes}}<div class="msg"><a href="{{.Path}}"><code>{{.Code}}</code></a> {{dtype .Type}} · <span class="st {{stClass .Status}}">{{dstatus .Status}}</span> · <span class="muted small">{{ago .CreatedAt}}</span>{{if .ResolutionNote}}<div class="small">{{.ResolutionNote}}</div>{{end}}</div>{{end}}{{else}}<p class="muted">没有申诉记录。</p>{{end}}</section>
 {{else}}

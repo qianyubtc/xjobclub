@@ -11,6 +11,12 @@
   <td><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></td>
   <td class="small muted">{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</td>
 </tr>{{end}}
+{{define "subcard"}}<a class="subcard" href="{{.X.Path}}">
+  <span class="code">{{.X.Code}}<small>记录</small></span>
+  <span class="tt">{{if .T}}{{.T.Title}}{{else}}—{{end}}</span>
+  <span class="sub">{{if .Other}}@{{.Other.Handle}} · {{end}}{{if eq .X.Status "claimed"}}提交剩 {{left .X.ClaimExpiresAt}}{{else if eq .X.Status "verified"}}复检 {{ftime .X.RecheckDueAt}}{{else if eq .X.Status "payable"}}付款剩 {{left .X.PayDeadlineAt}}{{else if eq .X.Status "awaiting_confirm"}}标记于 {{ago .X.MarkedPaidAt}}{{else if eq .X.Status "overdue"}}逾期 {{ago .X.OverdueAt}}{{else}}{{ago .X.UpdatedAt}}{{end}}</span>
+  <span class="right"><span class="money">{{if .T}}{{amt .T.RewardE8}} U{{end}}</span><span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></span>
+</a>{{end}}
 {{define "taskcard"}}<a class="ticket" href="{{.T.Path}}">
   <div class="stub"><div class="r">{{amt .T.RewardE8}}</div><div class="u">U / 条</div><div class="left">剩 {{.T.Left}} 单</div></div>
   <div class="body">
