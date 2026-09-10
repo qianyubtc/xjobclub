@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -353,4 +355,35 @@ func (a *App) handleAdminLift(w http.ResponseWriter, r *http.Request) {
 		a.flash(w, "已解除")
 	}
 	a.redirectBack(w, r, "/admin")
+}
+
+// cancelOpenTasks 把所有在售 / 暂停的任务转为只保留已接名额（CancelRemaining），并通知发布方。
+// 用于「平台改为先审核再上线」这类切换：旧任务不再开放新接单，已接的照常走完。
+func (a *App) cancelOpenTasks(reason string, by int64) int {
+	list, _ := a.st.queryTasks(`WHERE status IN ('open','paused') ORDER BY id`)
+	n := 0
+	for _, t := range list {
+		if err := a.st.CancelRemaining(t.ID); err != nil {
+			log.Printf("[warn] 撤回任务 %s 失败: %v", t.Code, err)
+			continue
+		}
+		n++
+		a.st.Audit(by, "task.cancel_open", "task", t.ID, map[string]any{"reason": reason}, "")
+		a.notify(t.OwnerID, "task", "任务 "+t.Code+" 已停止接新单", reason+" 已被接的记录不受影响，可以重新发布新任务（新任务会先经社区审核）。", t.Path())
+	}
+	return n
+}
+
+func (a *App) handleAdminCancelOpen(w http.ResponseWriter, r *http.Request) {
+	admin, ok := a.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	reason := cleanText(r.FormValue("reason"), 200, false)
+	if reason == "" {
+		reason = "平台调整，旧任务停止接新单。"
+	}
+	n := a.cancelOpenTasks(reason, admin.ID)
+	a.flash(w, fmt.Sprintf("已撤回 %d 个在售任务（已接的记录保留）", n))
+	http.Redirect(w, r, "/admin", http.StatusFound)
 }

@@ -55,7 +55,7 @@
 <nav class="tabbar" aria-label="底部导航">
   <a href="/" {{if eq .Path "/"}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><path d="M3 9.5 5 4h14l2 5.5"/><path d="M3 9.5c0 1.4 1.1 2.5 2.5 2.5S8 10.9 8 9.5c0 1.4 1.1 2.5 2.5 2.5S13 10.9 13 9.5c0 1.4 1.1 2.5 2.5 2.5S18 10.9 18 9.5c0 1.4 1.1 2.5 2.5 2.5S23 10.9 23 9.5"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/></svg>大厅</a>
   <a href="/new" {{if eq .Path "/new"}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l8 5V4L7 9H4a1 1 0 0 0-1 1z"/><path d="M18 9a4 4 0 0 1 0 6"/><path d="M8 15v5"/></svg>发布</a>
-  <a href="/court" {{if eq .Path "/court"}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M5 7h14"/><path d="M8 21h8"/><path d="M5 7l-3 7a3 3 0 0 0 6 0L5 7z"/><path d="M19 7l-3 7a3 3 0 0 0 6 0l-3-7z"/></svg>法庭</a>
+  <a href="/review" {{if or (eq .Path "/review") (eq .Path "/court")}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>审核{{if .ReviewN}}<span class="badge">{{.ReviewN}}</span>{{end}}</a>
   <a href="/blacklist" {{if eq .Path "/blacklist"}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5l13 13"/></svg>榜单</a>
   <a href="{{if .Me}}/me{{else}}/login{{end}}" {{if or (eq .Path "/me") (eq .Path "/login")}}class="on"{{end}}><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>{{if .Me}}我的{{else}}登录{{end}}{{if .Todo}}<span class="badge">{{.Todo}}</span>{{end}}</a>
 </nav>

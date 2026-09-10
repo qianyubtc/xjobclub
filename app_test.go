@@ -1852,3 +1852,41 @@ func TestEligibleCount(t *testing.T) {
 		t.Fatalf("eligible count high bar: %s", body)
 	}
 }
+
+func TestCancelOpenTasksKeepsClaims(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	admin := e.browser("admin")
+	admin.register("admin", "4009")
+	alice := e.browser("alice")
+	alice.register("alice", "4001")
+	alice.setUID("41001")
+	alice.certify("payer-A40")
+	bob := e.browser("bob")
+	bob.register("bob", "4002")
+	bob.setUID("41002")
+	t1 := alice.publish(taskForm(url.Values{"title": {"甲"}, "slots": {"3"}}))
+	t2 := alice.publish(taskForm(url.Values{"title": {"乙"}}))
+	x := bob.claim(t1)
+	if resp, _ := bob.post("/admin/tasks/cancel-open", nil); resp.StatusCode != 403 && resp.StatusCode != 404 {
+		t.Fatalf("non-admin must not cancel: %d", resp.StatusCode)
+	}
+	admin.post("/admin/tasks/cancel-open", url.Values{"reason": {"改为先审核再上线"}})
+	t1, _ = e.a.st.GetTaskByID(t1.ID)
+	t2, _ = e.a.st.GetTaskByID(t2.ID)
+	if t1.Status != "closed" || t1.SlotsTotal != 1 || t2.Status != "closed" || t2.SlotsTotal != 0 {
+		t.Fatalf("cancel-open: %s/%d %s/%d", t1.Status, t1.SlotsTotal, t2.Status, t2.SlotsTotal)
+	}
+	if x, _ = e.a.st.GetSubByID(x.ID); x.Status != SClaimed {
+		t.Fatalf("existing claim must survive: %s", x.Status)
+	}
+	if _, body := bob.get("/"); strings.Contains(body, "甲") || strings.Contains(body, "乙") {
+		t.Fatal("cancelled tasks must leave the lobby")
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%停止接新单%'`, t1.OwnerID); n != 2 {
+		t.Fatalf("owner notifications: %d", n)
+	}
+	// H5 底栏有审核入口
+	if _, body := bob.get("/"); !strings.Contains(body, `href="/review"`) {
+		t.Fatal("tabbar should link to /review")
+	}
+}

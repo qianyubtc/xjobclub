@@ -326,6 +326,7 @@ func (a *App) routes() {
 	m.HandleFunc("GET /admin", a.handleAdmin)
 	m.HandleFunc("GET /admin/users", a.handleAdminUsers)
 	m.HandleFunc("POST /admin/dispute/{code}/{action}", a.handleAdminDispute)
+	m.HandleFunc("POST /admin/tasks/cancel-open", a.handleAdminCancelOpen)
 	m.HandleFunc("POST /admin/user/{id}/{action}", a.handleAdminUser)
 	m.HandleFunc("POST /admin/task/{code}/{action}", a.handleAdminTask)
 	m.HandleFunc("POST /admin/sub/{code}/{action}", a.handleAdminSub)

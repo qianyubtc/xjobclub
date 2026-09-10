@@ -1,7 +1,7 @@
 {{define "title"}}任务审核 · {{.SiteTitle}}{{end}}
 {{define "content"}}
 <section class="card">
-  <div class="sec-h"><h1 style="margin:0">任务审核</h1><span class="eyebrow">{{len .Tasks}} 个待审</span></div>
+  <div class="sec-h"><h1 style="margin:0">任务审核</h1><span class="eyebrow">{{len .Tasks}} 个待审</span><a class="small" href="/court" style="margin-left:auto">小法庭 →</a></div>
   <p class="small">新任务先在这里公示投票，通过后才会出现在大厅。看看文案、目标和发布方，判断有没有诈骗、钓鱼、引流付费、违法或明显不合理的地方。{{if .Eligible}}你具备审核资格，累计参与 {{.MyVotes}} 次。{{else}}<b>{{.Why}}</b>{{end}}</p>
   <p class="small muted">资格：注册满 {{dur .Cfg.ReviewVoterAgeH}}、X 账号注册满 {{.Cfg.ReviewVoterXDays}} 天、不在黑名单，不能审自己的任务，每天最多 {{.Cfg.ReviewVotesPerDay}} 次。审核不给钱；反对票的理由发布方看得到，但看不到是谁投的。</p>
 </section>
