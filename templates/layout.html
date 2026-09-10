@@ -88,13 +88,15 @@
     setTimeout(function(){f.__busy=false;bs.forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})},8000)});
   window.addEventListener('pageshow',function(){document.querySelectorAll('button.busy').forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})});
   document.querySelectorAll('form[data-autosubmit] select').forEach(function(sel){sel.addEventListener('change',function(){var f=sel.form;if(f.requestSubmit)f.requestSubmit();else f.submit()})});
-  // 外观切换：跟随系统 → 深色 → 浅色（记在本机）
+  // 外观切换：按当前实际外观翻转（深→浅 / 浅→深），一下就变；未手动选过时跟随系统
   (function(){var meta=document.querySelector('meta[name=theme-color]:not([media])');function cur(){try{return localStorage.getItem('theme')||'system'}catch(e){return 'system'}}
-    function icon(t){return '<svg class="ic" aria-hidden="true"><use href="#i-'+(t==='dark'?'moon':t==='light'?'sun':'auto')+'"/></svg>'}
-    function paint(t){if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else document.documentElement.removeAttribute('data-theme');document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.innerHTML=icon(t)});
-      var dark=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);if(!meta){meta=document.createElement('meta');meta.name='theme-color';document.head.appendChild(meta)}var yel=document.documentElement.getAttribute('data-accent')==='yellow';meta.content=dark?'#0F1623':(yel?'#FFD34D':'#0D6EFD')}
+    function effDark(t){return t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches)}
+    function icon(t){return '<svg class="ic" aria-hidden="true"><use href="#i-'+(effDark(t)?'sun':'moon')+'"/></svg>'}
+    function paint(t){if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);else document.documentElement.removeAttribute('data-theme');document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.innerHTML=icon(t);b.title=effDark(t)?'切换到浅色':'切换到深色'});
+      var dark=effDark(t);if(!meta){meta=document.createElement('meta');meta.name='theme-color';document.head.appendChild(meta)}var yel=document.documentElement.getAttribute('data-accent')==='yellow';meta.content=dark?'#0F1623':(yel?'#FFD34D':'#0D6EFD')}
     paint(cur());
-    document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.addEventListener('click',function(){var t=cur(),n=t==='system'?'dark':t==='dark'?'light':'system';try{if(n==='system')localStorage.removeItem('theme');else localStorage.setItem('theme',n)}catch(e){}paint(n);toast({dark:'已切换到深色',light:'已切换到浅色',system:'已改为跟随系统'}[n])})});
+    document.querySelectorAll('[data-theme-toggle]').forEach(function(b){b.addEventListener('click',function(){var n=effDark(cur())?'light':'dark';try{localStorage.setItem('theme',n)}catch(e){}paint(n);toast(n==='dark'?'已切换到深色':'已切换到浅色')})});
+    try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){paint(cur())})}catch(e){}
     // 主题色：蓝 ↔ 黄（有人就爱黄色）
     document.querySelectorAll('[data-accent-toggle]').forEach(function(b){b.addEventListener('click',function(){var yel=document.documentElement.getAttribute('data-accent')==='yellow';if(yel){document.documentElement.removeAttribute('data-accent');try{localStorage.removeItem('accent')}catch(e){}}else{document.documentElement.setAttribute('data-accent','yellow');try{localStorage.setItem('accent','yellow')}catch(e){}}paint(cur());toast(yel?'已切换到蓝色主题':'已切换到黄色主题')})})})();
   // 横向可滚的标签条：把当前项滚到可见位置
