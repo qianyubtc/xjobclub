@@ -75,6 +75,9 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats, refresh bool) string {
 	if p, _ := a.st.GetPayProfile(u.ID); p == nil {
 		return "请先在「收款设置」里绑定币安 UID，否则没法收钱"
 	}
+	if bl, _ := a.st.ActiveBlacklist(t.OwnerID); bl != nil {
+		return "发布方在黑名单中，任务不可接"
+	}
 	if t.Status == TReview {
 		return "任务审核中，通过后开放接单"
 	}
@@ -147,7 +150,7 @@ func (a *App) refreshFollowers(u *User, force bool) {
 
 // workerLockedNow 待确认到账超过 24 小时未处理即锁定。
 func (a *App) workerLockedNow(userID int64) bool {
-	return a.st.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='awaiting_confirm' AND marked_paid_at>0 AND marked_paid_at<? AND topup_requested_at=0`, userID, ms()-dayMs) > 0
+	return a.st.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='awaiting_confirm' AND marked_paid_at>0 AND MAX(marked_paid_at, topup_marked_at)<? AND topup_requested_at=0`, userID, ms()-dayMs) > 0
 }
 
 // ---- 大厅 ----
@@ -277,7 +280,7 @@ var kindOpts = []kindOpt{{"post", "发帖", "发一条推文"}, {"reply", "评�
 
 func (a *App) defaultForm() newForm {
 	c := a.cfg
-	return newForm{TType: "post", MinLen: "10", PriceMode: "fixed", CPM: "1", Floor: "0", Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
+	return newForm{TType: "post", MinLen: "10", PriceMode: "fixed", CPM: "1", Floor: "0.05", Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
 		Retention: strconv.FormatInt(c.RetentionDefault, 10), PayWindow: strconv.FormatInt(c.PayWindowDefault, 10), Deadline: strconv.FormatInt(c.DeadlineDefault, 10), MinDays: "0", MinFans: "0", AdTag: true}
 }
 
@@ -419,9 +422,10 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.st.Audit(u.ID, "task.edit", "task", t.ID, nil, a.ip(r))
-		if t.Status == TReview || t.Status == TRejected {
-			a.st.RestartReview(t.ID, ms(), ms()+a.cfg.ReviewWindowH*hourMs) // 改过文案，旧票作废，重新审
-			a.flash(w, "已保存并重新提交审核")
+		if a.cfg.ReviewEnabled && !a.reviewSkip(u, a.st.PubStats(u.ID)) {
+			// 改过内容就得重新过审（否则先发个无害文案过审再改成钓鱼链接）；旧票作废
+			a.st.RestartReview(t.ID, ms(), ms()+a.cfg.ReviewWindowH*hourMs)
+			a.flash(w, "已保存并重新提交审核：改过内容需要重新通过社区审核")
 		} else {
 			a.flash(w, "已保存")
 		}
@@ -468,11 +472,9 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 			bad("每千次浏览的报酬须在 0.001–50 U 之间")
 			return
 		}
-		if f.Floor != "" {
-			if floorE8, err = parseAmountE8(f.Floor, 4); err != nil || floorE8 < 0 {
-				bad("保底金额不对")
-				return
-			}
+		if floorE8, err = parseAmountE8(f.Floor, 4); err != nil || floorE8 < 1000000 {
+			bad("保底至少 0.01 U（低于币安可转账的最小金额没法付）")
+			return
 		}
 		reward, err = parseAmountE8(f.Cap, 4)
 		if err != nil || reward < c.MinRewardE8 || reward > c.MaxRewardE8 {

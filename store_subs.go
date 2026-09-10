@@ -338,7 +338,7 @@ func (s *Store) DuePayables(now int64) ([]*Submission, error) {
 }
 
 func (s *Store) AwaitingSince(before int64) ([]*Submission, error) {
-	return s.querySubs(`WHERE status='awaiting_confirm' AND marked_paid_at<=? ORDER BY marked_paid_at LIMIT 200`, before)
+	return s.querySubs(`WHERE status='awaiting_confirm' AND MAX(marked_paid_at, topup_marked_at)<=? ORDER BY marked_paid_at LIMIT 200`, before)
 }
 
 // ---- 锁定 / 冻结 / 统计 ----
@@ -423,6 +423,8 @@ type PublicRecord struct {
 	ConfirmedAt int64
 	SelfDeal    int64
 	Kind        string
+	WorkerStale bool
+	OwnerStale  bool
 }
 
 var publicStatuses = map[string][]string{
@@ -444,7 +446,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 	}
 	where := `WHERE x.status IN (` + placeholders(len(sts)) + `)`
 	total := s.count(`SELECT COUNT(*) FROM submissions x `+where, args...)
-	q := `SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind
+	q := `SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind,w.handle_stale,o.handle_stale
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id ` + where +
 		fmt.Sprintf(` ORDER BY x.updated_at DESC LIMIT %d OFFSET %d`, limit, offset)
 	rows, err := s.db.Query(q, args...)
@@ -455,9 +457,11 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind); err != nil {
+		var ws, os int64
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind, &ws, &os); err != nil {
 			return nil, 0, err
 		}
+		r.WorkerStale, r.OwnerStale = ws == 1, os == 1
 		out = append(out, r)
 	}
 	return out, total, rows.Err()
@@ -465,7 +469,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 
 // TaskPublicRecords 某任务的公开接单动态（不含过期/作废）。
 func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
-	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,x.self_deal,t.kind
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,x.self_deal,t.kind,w.handle_stale,o.handle_stale
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
 		WHERE x.task_id=? AND x.status NOT IN ('expired','void') ORDER BY x.id DESC LIMIT 100`, taskID)
 	if err != nil {
@@ -475,9 +479,11 @@ func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.SelfDeal, &r.Kind); err != nil {
+		var ws, os int64
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.SelfDeal, &r.Kind, &ws, &os); err != nil {
 			return nil, err
 		}
+		r.WorkerStale, r.OwnerStale = ws == 1, os == 1
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -485,7 +491,7 @@ func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
 
 // UserDoneRecords 某用户作为接单方最近完成的单。
 func (s *Store) UserDoneRecords(userID int64, limit int) ([]PublicRecord, error) {
-	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,COALESCE(NULLIF(x.amount_e8,0),t.reward_e8),w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind,w.handle_stale,o.handle_stale
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
 		WHERE x.worker_id=? AND x.status='paid' ORDER BY x.confirmed_at DESC LIMIT ?`, userID, limit)
 	if err != nil {
@@ -495,10 +501,27 @@ func (s *Store) UserDoneRecords(userID int64, limit int) ([]PublicRecord, error)
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind); err != nil {
+		var ws, os int64
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind, &ws, &os); err != nil {
 			return nil, err
 		}
+		r.WorkerStale, r.OwnerStale = ws == 1, os == 1
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// WorkerPath / OwnerPath 主页链接：用户名被顶替后按 X 数字 ID 定位。
+func (r PublicRecord) WorkerPath() string {
+	if r.WorkerStale {
+		return "/u/xid:" + r.WorkerXID
+	}
+	return "/u/" + r.Worker
+}
+
+func (r PublicRecord) OwnerPath() string {
+	if r.OwnerStale {
+		return "/u/xid:" + r.OwnerXID
+	}
+	return "/u/" + r.Owner
 }

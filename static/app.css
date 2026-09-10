@@ -348,3 +348,5 @@ details.fold summary{font-size:14px}
 .empty .big{font-size:22px}
 .stats.six{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media (max-width:640px){.stats.six{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stats.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:640px){.stats.five{grid-template-columns:repeat(2,minmax(0,1fr))}}

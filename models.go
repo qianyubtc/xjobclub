@@ -149,7 +149,7 @@ func (t *Task) PriceText() string {
 
 // payAmount 一条记录应付多少：按浏览量结算过就用结算金额，否则用任务单价（封顶）。
 func payAmount(x *Submission, t *Task) int64 {
-	if x != nil && x.AmountE8 > 0 {
+	if x != nil && x.SettleViews >= 0 { // 已按浏览量结算（金额可能等于保底）
 		return x.AmountE8
 	}
 	return t.RewardE8

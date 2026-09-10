@@ -49,7 +49,7 @@
   <h2 style="margin-top:0">陈述与证据</h2>
   {{range .Msgs}}<div class="msg"><div class="who">{{if .AuthorID}}{{if and $.HideOpener (eq .AuthorID $.D.OpenerID)}}举报人{{else}}{{with index $.Authors .AuthorID}}@{{.Handle}}{{if eq .ID $.D.OpenerID}}（发起方）{{else if eq .ID $.D.AgainstID}}（被诉方）{{end}}{{end}}{{end}}{{else}}管理员{{end}} · {{ftime .CreatedAt}}</div><div class="body">{{.Text}}</div>{{range .Images}}<a class="ev" href="/evidence/{{.}}" target="_blank"><img src="/evidence/{{.}}" alt="证据" loading="lazy"></a>{{end}}</div>{{else}}<p class="muted">暂无。</p>{{end}}
 </section>
-{{if .Facts}}<section class="card"><h2 style="margin-top:0">系统事实（记录时间线）</h2><ul class="tl">{{range .Facts}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}}{{if .Meta}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}</ul></section>{{end}}
+{{if .Facts}}<section class="card"><h2 style="margin-top:0">系统事实（记录时间线）</h2><ul class="tl">{{range .Facts}}{{$t := auditText .Action}}{{if $t}}<li><span class="t">{{ftime .CreatedAt}}</span>{{$t}}{{if and .Meta $.IsAdmin}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}{{end}}</ul></section>{{end}}
 {{end}}
 {{define "votebox"}}<div class="votebox">
   {{if .R.MyVote}}<div class="notice {{if eq .R.MyVote 1}}ok{{else}}warn{{end}}">你投了「{{if eq .R.MyVote 1}}没问题{{else}}有问题{{end}}」{{if .R.MyReason}}：{{.R.MyReason}}{{end}} · 当前 {{.R.Pass}} 通过 / {{.R.Fail}} 反对</div>

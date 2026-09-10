@@ -24,6 +24,6 @@
   <button class="btn sec sm" type="submit">筛选</button>
 </form>
 {{if .Tasks}}{{range .Tasks}}{{template "taskcard" (dict "T" . "Owner" (index $.Owners .OwnerID) "Stats" (index $.Stats .OwnerID))}}{{end}}
-<div class="pager">{{if gt .Page 1}}<a href="?page={{sub (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">上一页</a>{{end}}{{if gt .Pages 1}}<span>{{.Page}} / {{.Pages}}</span>{{end}}{{if lt .Page .Pages}}<a href="?page={{add (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}">下一页</a>{{end}}</div>
+<div class="pager">{{if gt .Page 1}}<a href="?page={{sub (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}&kind={{.Kind}}">上一页</a>{{end}}{{if gt .Pages 1}}<span>{{.Page}} / {{.Pages}}</span>{{end}}{{if lt .Page .Pages}}<a href="?page={{add (i64 .Page) 1}}&min={{.MinU}}&ret={{.Retent}}&sort={{.Sort}}&kind={{.Kind}}">下一页</a>{{end}}</div>
 {{else}}<div class="empty"><div class="big">暂时没有单子</div><p class="muted">{{if .Me}}要不你来发第一单？<a href="/new">发布任务</a>{{else}}<a href="/register">注册</a>后可以自己发一单。{{end}}</p></div>{{end}}
 {{end}}

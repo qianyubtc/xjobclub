@@ -1672,14 +1672,19 @@ func TestPublishReviewFlow(t *testing.T) {
 		t.Fatalf("silent deadline should auto-publish: %s %s", t3.Status, t3.ReviewResult)
 	}
 
-	// 4) 三票反对 → 驳回；发布方改文案 → 重新审核，旧票清空
+	// 4) 三票反对 → 转管理员裁定（不直接驳回，防小号联手封杀）→ 管理员驳回；发布方改文案 → 重新审核，旧票清空
 	t4 := pub.publish(taskForm(url.Values{"title": {"第四个任务"}}))
 	for _, b := range vs {
 		b.post("/review/"+t4.Code+"/vote", url.Values{"vote": {"fail"}, "reason": {"诈骗 / 钓鱼 / 引流付费"}})
 	}
 	t4, _ = e.a.st.GetTaskByID(t4.ID)
-	if t4.Status != TRejected || t4.ReviewResult != "vote_reject" {
-		t.Fatalf("3 fail votes should reject: %s %s", t4.Status, t4.ReviewResult)
+	if t4.Status != TReview || t4.ReviewHold != 1 {
+		t.Fatalf("3 fail votes should hold for admin: %s hold=%d", t4.Status, t4.ReviewHold)
+	}
+	admin.post("/admin/task/"+t4.Code+"/reject", url.Values{"reason": {"钓鱼链接"}})
+	t4, _ = e.a.st.GetTaskByID(t4.ID)
+	if t4.Status != TRejected || t4.ReviewResult != "admin_reject" {
+		t.Fatalf("admin reject: %s %s", t4.Status, t4.ReviewResult)
 	}
 	if resp, _ := vs[0].get(t4.Path()); resp.StatusCode != 404 {
 		t.Fatal("rejected task should be hidden from others")
@@ -1694,6 +1699,12 @@ func TestPublishReviewFlow(t *testing.T) {
 	}
 	if p, f := e.a.st.VoteCounts(t4.ID); p != 0 || f != 0 {
 		t.Fatal("old votes must be cleared on resubmit")
+	}
+
+	// 上线后的任务改了内容也要重新过审（否则先过审再改成钓鱼文案）
+	pub.post("/new", url.Values{"edit": {task.Code}, "title": {"第一个任务（改）"}, "content1": {"改过的文案 https://example.com/y"}, "match_mode": {"exact"}, "ttype": {"post"}})
+	if task, _ = e.a.st.GetTaskByID(task.ID); task.Status != TReview {
+		t.Fatalf("editing a live task must send it back to review: %s", task.Status)
 	}
 
 	// 5) 管理员发布免审
@@ -1779,7 +1790,11 @@ func TestCPMPricing(t *testing.T) {
 		t.Fatalf("unreadable views should retry: %s %q", x3.Status, x3.RecheckFlag)
 	}
 	// 超过 24 小时仍读不到 → 按已记录值（无 → 0）结算为保底
-	e.a.st.db.Exec(`UPDATE submissions SET recheck_due_at=? WHERE id=?`, ms()-25*hourMs, x3.ID)
+	e.a.runJobs() // 重试改写了 recheck_due_at，但兜底期限按原始到期时间算，这里仍不应结算
+	if x3, _ = e.a.st.GetSubByID(x3.ID); x3.Status != SVerified {
+		t.Fatalf("retry must not settle early: %s", x3.Status)
+	}
+	e.a.st.db.Exec(`UPDATE submissions SET recheck_due_at=?, verified_at=? WHERE id=?`, ms()-1, ms()-49*hourMs, x3.ID)
 	e.a.runJobs()
 	if x3, _ = e.a.st.GetSubByID(x3.ID); x3.Status != SPayable || x3.AmountE8 != 20000000 || !strings.Contains(x3.RecheckFlag, "读取失败") {
 		t.Fatalf("fallback settlement: %s amount=%d flag=%q", x3.Status, x3.AmountE8, x3.RecheckFlag)

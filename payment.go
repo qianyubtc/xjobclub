@@ -259,6 +259,9 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string, full bool) {
 				if err := a.st.SetPayerID(owner.ID, payerID, false); errors.Is(err, ErrPayerTaken) {
 					a.st.Audit(0, "pay.payer_conflict", "user", owner.ID, map[string]any{"payer_id": payerID, "submission": x.Code}, "")
 					log.Printf("[warn] 付款账户冲突：用户 #%d 用了已认证给他人的 payer %s（记录 %s）", owner.ID, payerID, x.Code)
+					if a.st.BlacklistedIdentity("", "", payerID) {
+						a.notifyAdmins("付款账户命中黑名单", fmt.Sprintf("发布方 @%s（#%d）的付款账户与黑名单中的账号相同，疑似换号规避，请到后台处理。记录 %s。", owner.Handle, owner.ID, x.Code), x.Path())
+					}
 				}
 			} else if owner.PayerID != payerID {
 				a.st.Audit(0, "pay.payer_mismatch", "submission", x.ID, map[string]any{"expected": owner.PayerID, "got": payerID}, "")
@@ -276,7 +279,11 @@ func (a *App) onPaid(p *Payment, actualE8 int64, payerID string, full bool) {
 				a.afterPaid(x, t, 0, "gateway")
 			}
 		} else if p.Kind != "topup" {
-			if ok, _ := a.st.SetUnderpaid(x.ID, actualE8); ok {
+			if ok, _ := a.st.SetUnderpaid(x.ID, actualE8); !ok {
+				a.st.Audit(0, "pay.unexpected", "submission", x.ID, map[string]any{"actual": fmtE8(actualE8), "status": x.Status}, "")
+				a.notify(x.WorkerID, "pay", "收到一笔少付的款项（记录状态特殊）", fmt.Sprintf("任务 %s 收到 %s U，少于应付 %s U，但记录当前处于「%s」，请联系管理员处理。", t.Code, fmtE8(actualE8), fmtE8(payAmount(x, t)), subStatus(x.Status)), x.Path())
+				a.notify(t.OwnerID, "pay", "付款金额不足", fmt.Sprintf("任务 %s 实付 %s U，少于应付 %s U。", t.Code, fmtE8(actualE8), fmtE8(payAmount(x, t))), x.Path())
+			} else {
 				a.st.Audit(0, "sub.underpaid", "submission", x.ID, map[string]any{"actual": fmtE8(actualE8)}, "")
 				a.notify(x.WorkerID, "pay", "收到一笔少付的款项", fmt.Sprintf("任务 %s 应付 %s U，实收 %s U。你可以接受实付完成，或要求补差。", t.Code, fmtE8(payAmount(x, t)), fmtE8(actualE8)), x.Path())
 				a.notify(t.OwnerID, "pay", "付款金额不足", fmt.Sprintf("任务 %s 应付 %s U，实付 %s U，请等待接单方选择或补差。", t.Code, fmtE8(payAmount(x, t)), fmtE8(actualE8)), x.Path())
@@ -461,6 +468,8 @@ func (a *App) handlePayUID(w http.ResponseWriter, r *http.Request) {
 		a.flash(w, "币安 UID 应为纯数字（币安 App 头像页可见）")
 	case uid != uid2:
 		a.flash(w, "两次输入的 UID 不一致，请核对——填错了钱会转给别人")
+	case a.st.BlacklistedIdentity("", uid, ""):
+		a.flash(w, "这个币安 UID 关联着黑名单中的账号，不能使用")
 	case email != "" && !strings.Contains(email, "@"):
 		a.flash(w, "邮箱格式不对")
 	default:

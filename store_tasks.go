@@ -185,7 +185,7 @@ func (s *Store) CloseOwnerTasks(ownerID int64, reason string) {
 
 // TasksToClose 到期或名额全部完成的任务。
 func (s *Store) TasksToClose() ([]*Task, error) {
-	return s.queryTasks(`WHERE status IN ('open','paused') AND deadline_at<=?`, ms())
+	return s.queryTasks(`WHERE status IN ('open','paused','rejected') AND deadline_at<=?`, ms())
 }
 
 // ---- 发布审核 ----
@@ -268,7 +268,7 @@ func (s *Store) RestartReview(id, start, deadline int64) error {
 		if _, err := tx.Exec(`DELETE FROM task_votes WHERE task_id=?`, id); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`UPDATE tasks SET status='review', review_started_at=?, review_deadline_at=?, review_result='', review_note='', review_hold=0, updated_at=? WHERE id=? AND status IN ('review','rejected')`, start, deadline, ms(), id)
+		_, err := tx.Exec(`UPDATE tasks SET status='review', review_started_at=?, review_deadline_at=?, review_result='', review_note='', review_hold=0, updated_at=? WHERE id=? AND status IN ('review','rejected','open','paused')`, start, deadline, ms(), id)
 		return err
 	})
 }

@@ -91,9 +91,14 @@ func (a *App) decideReview(t *Task, now int64) {
 	total := pass + fail
 	switch {
 	case total >= c.ReviewMinVotes && pass*100 >= total*c.ReviewEarlyPass:
-		a.finishReview(t, true, "vote_pass", fmt.Sprintf("社区投票通过（%d 通过 / %d 反对）", pass, fail), 0)
+		if a.finishReview(t, true, "vote_pass", fmt.Sprintf("社区投票通过（%d 通过 / %d 反对）", pass, fail), 0) {
+			a.notifyAdmins("任务经社区投票上线（抽查）", fmt.Sprintf("《%s》%d 通过 / %d 反对，已上线；如有问题可到任务页下架。", t.Title, pass, fail), t.Path())
+		}
 	case total >= c.ReviewMinVotes && fail*100 >= total*c.ReviewEarlyFail:
-		a.finishReview(t, false, "vote_reject", fmt.Sprintf("社区投票未通过（%d 通过 / %d 反对）", pass, fail), 0)
+		// 反对票多不直接驳回（防止几个小号联手封杀），转管理员裁定
+		a.st.HoldReview(t.ID)
+		a.notifyAdmins("有任务被社区投票反对，请裁定", fmt.Sprintf("《%s》%d 通过 / %d 反对，请到后台通过或驳回。", t.Title, pass, fail), t.Path())
+		a.notify(t.OwnerID, "task", "任务审核转管理员裁定", fmt.Sprintf("《%s》收到较多反对票（%d 通过 / %d 反对），已转管理员裁定。", t.Title, pass, fail), t.Path())
 	case now >= t.ReviewDeadlineAt:
 		if fail >= c.ReviewHoldFails && fail*3 >= total {
 			a.st.HoldReview(t.ID)
@@ -138,11 +143,12 @@ func (a *App) notifyAdmins(title, body, link string) {
 
 // reviewTick 每分钟：判定审核中的任务。
 func (a *App) reviewTick(now int64) {
-	if !a.cfg.ReviewEnabled {
-		return
-	}
 	list, _ := a.st.TasksInReview()
 	for _, t := range list {
+		if !a.cfg.ReviewEnabled {
+			a.finishReview(t, true, "timeout_pass", "审核功能已关闭，自动上线", 0)
+			continue
+		}
 		a.decideReview(t, now)
 	}
 }
@@ -192,8 +198,8 @@ func (a *App) handleReviewVote(w http.ResponseWriter, r *http.Request) {
 	if a.limited(w, r, "vote", 60, 10*time.Minute) {
 		return
 	}
-	next := r.FormValue("next")
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+	next := safeNext(r.FormValue("next"))
+	if next == "/me" {
 		next = "/review"
 	}
 	t, _ := a.st.GetTaskByCode(r.PathValue("code"))

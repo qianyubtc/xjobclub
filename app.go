@@ -24,17 +24,18 @@ var tplFS embed.FS
 var staticFS embed.FS
 
 type App struct {
-	cfg      *Config
-	st       *Store
-	mux      *http.ServeMux
-	tpl      map[string]*template.Template
-	lim      *limiter
-	secure   bool
-	session  []byte
-	gwc      *bpaygate.Client // nil = 未配置网关
-	origin   string
-	fetchSem chan struct{} // 推文抓取并发闸
-	cssVer   string        // 静态样式内容哈希，做缓存穿透
+	adminBound sync.Map // handle → 已绑定的 X 数字 ID
+	cfg        *Config
+	st         *Store
+	mux        *http.ServeMux
+	tpl        map[string]*template.Template
+	lim        *limiter
+	secure     bool
+	session    []byte
+	gwc        *bpaygate.Client // nil = 未配置网关
+	origin     string
+	fetchSem   chan struct{} // 推文抓取并发闸
+	cssVer     string        // 静态样式内容哈希，做缓存穿透
 
 	stop      chan struct{}
 	wg        sync.WaitGroup
@@ -135,7 +136,6 @@ func (a *App) funcs() template.FuncMap {
 		"mul":       func(a, b int64) int64 { return a * b },
 		"initial":   initial,
 		"hue":       hue,
-		"safeHTML":  func(s string) template.HTML { return template.HTML(s) },
 		"json": func(v any) template.JS {
 			b, _ := json.Marshal(v)
 			return template.JS(b)
@@ -406,17 +406,22 @@ func (a *App) isAdmin(u *User) bool {
 		return false
 	}
 	for h := range a.cfg.AdminHandles {
-		key := "admin_xid:" + h
-		bound, _ := a.st.GetMeta(key)
-		if bound == "" {
-			if u.HandleLower == h {
+		var bound string
+		if v, ok := a.adminBound.Load(h); ok {
+			bound = v.(string)
+		} else {
+			key := "admin_xid:" + h
+			bound, _ = a.st.GetMeta(key)
+			if bound == "" && u.HandleLower == h {
 				a.st.SetMeta(key, u.XID)
 				a.st.Audit(u.ID, "admin.bind", "user", u.ID, map[string]any{"handle": h}, "")
-				return true
+				bound = u.XID
 			}
-			continue
+			if bound != "" {
+				a.adminBound.Store(h, bound)
+			}
 		}
-		if bound == u.XID {
+		if bound != "" && bound == u.XID {
 			return true
 		}
 	}

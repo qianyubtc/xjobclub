@@ -126,10 +126,6 @@ func (a *App) handleOpenDispute(w http.ResponseWriter, r *http.Request) {
 		bad("请描述一下情况（至少 5 个字）")
 		return
 	}
-	if typ == "A" && x.OverdueAt > 0 && ms()-x.OverdueAt < 0 {
-		bad("还没逾期")
-		return
-	}
 	d, err := a.openDisputeOn(x, t, typ, u, text, a.ip(r))
 	if err != nil {
 		a.fail(w, r, err)
@@ -569,6 +565,9 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			a.st.db.Exec(`UPDATE submissions SET marked_paid_at=0, marked_order_id='', marked_note='', updated_at=? WHERE id=? AND status='void'`, ms(), x.ID)
 			a.closePendingForSub(x.ID)
 			a.st.Audit(by, "sub.void", "submission", x.ID, map[string]any{"reason": "D 类申诉成立"}, ip)
+			if a.st.PublisherFrozen(t.OwnerID) == 0 {
+				a.st.UnfreezeOwnerTasks(t.OwnerID)
+			}
 		} else {
 			paused := ms() - d.CreatedAt
 			a.st.db.Exec(`UPDATE submissions SET pay_deadline_at=MAX(pay_deadline_at+?, ?), updated_at=? WHERE id=? AND status='payable'`, paused, ms()+dayMs, ms(), x.ID)
@@ -585,7 +584,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			}
 			a.st.db.Exec(`UPDATE submissions SET void_reason='', updated_at=? WHERE id=?`, ms(), x.ID)
 			a.st.Audit(by, "sub.check_ok", "submission", x.ID, map[string]any{"reason": "G 类申诉成立"}, ip)
-			a.notify(t.OwnerID, "pay", "核对争议成立，请付款", fmt.Sprintf("记录 %s 经裁决视为已完成，请在 %s 内付款 %s U。", x.Code, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
+			a.notify(t.OwnerID, "pay", "核对争议成立，请付款", fmt.Sprintf("记录 %s 经裁决视为已完成，请在 %s 内付款 %s U。注意：作废期间名额可能已被他人接走，本条按额外一单付款。", x.Code, dur(t.PayWindowH), fmtE8(payAmount(x, t))), x.Path())
 		}
 	case "E":
 		if t == nil {
@@ -657,8 +656,8 @@ func (a *App) blacklistUser(u *User, role, reason string, disputeID int64, ip st
 				a.notify(x.WorkerID, "dispute", "发布方已上黑名单，记录转为违约", "欠款会公示在黑名单榜；对方补付后会通知你。", x.Path())
 			}
 		}
-		a.st.CloseOwnerTasks(u.ID, "blacklisted")
 	}
+	a.st.CloseOwnerTasks(u.ID, "blacklisted") // 无论以哪种身份上榜，在线任务全部关闭
 	if existing != nil {
 		if owed > 0 {
 			a.st.AddOwed(u.ID, owed)
@@ -693,7 +692,17 @@ func (a *App) takedownTask(t *Task, by int64, ip string) {
 			a.st.SetVoid(x.ID, []string{SClaimed, SSubmit, SChecking}, "任务已下架")
 			a.notify(x.WorkerID, "verify", "任务 "+t.Code+" 已被下架", "请删除相关推文，本条记录作废。", x.Path())
 		case SVerified:
-			if ok, _ := a.st.SetPayable(x.ID, ms()+t.PayWindowH*hourMs, "任务下架，免留存"); ok {
+			var ok bool
+			if t.CPM() {
+				v := x.Views
+				if v < 0 {
+					v = 0
+				}
+				ok, _ = a.st.SetPayableAmount(x.ID, ms()+t.PayWindowH*hourMs, "任务下架，免留存，按已记录浏览量结算", cpmAmount(t, v), v)
+			} else {
+				ok, _ = a.st.SetPayable(x.ID, ms()+t.PayWindowH*hourMs, "任务下架，免留存")
+			}
+			if ok {
 				a.notify(x.WorkerID, "verify", "任务 "+t.Code+" 已被下架", "你的推文已验证通过，免留存直接进入待付款；可以删除推文。", x.Path())
 				a.notify(t.OwnerID, "pay", "任务被下架，已验证记录仍需付款", "记录 "+x.Code, x.Path())
 			}

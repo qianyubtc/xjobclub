@@ -94,6 +94,7 @@ func (a *App) fetchTweet(id, purpose string) (*Tweet, error) {
 		payload = string(tw.Raw)
 	}
 	a.st.db.Exec(`INSERT INTO tweet_cache(tweet_id,purpose,ok,err,payload,fetched_at) VALUES(?,?,?,?,?,?)`, id, purpose, ok, msg, payload, ms())
+	a.st.db.Exec(`DELETE FROM tweet_cache WHERE tweet_id=? AND id NOT IN (SELECT id FROM tweet_cache WHERE tweet_id=? ORDER BY id DESC LIMIT 5)`, id, id)
 	return tw, err
 }
 
