@@ -91,6 +91,12 @@ type Task struct {
 	MinAccountDays int64
 	MinFollowers   int64
 	AdTag          bool
+	Kind           string // post 发帖 | reply 评论 | like 点赞 | repost 转发
+	TargetTweetID  string // 评论/点赞/转发的目标推文
+	TargetURL      string
+	TargetAuthor   string
+	TargetText     string
+	MinLen         int64  // 评论自由发挥时的最少字数
 	Status         string // open | paused | closed
 	CloseReason    string
 	PausedByFreeze bool
@@ -113,10 +119,52 @@ func (t *Task) Left() int64 {
 
 func (t *Task) Path() string { return "/t/" + t.Code }
 
+// NeedsTweet 是否要接单方回填一条推文链接（发帖、评论）。
+func (t *Task) NeedsTweet() bool { return t.Kind == "" || t.Kind == "post" || t.Kind == "reply" }
+
+// Manual 是否由发布方人工核对（点赞、转发：公开接口读不到名单）。
+func (t *Task) Manual() bool { return t.Kind == "like" || t.Kind == "repost" }
+
+func (t *Task) KindText() string { return kindText(t.Kind) }
+
+// Unit 计价单位。
+func (t *Task) Unit() string {
+	if t.Manual() {
+		return "次"
+	}
+	return "条"
+}
+
+// DoneVerb 接单方要做的动作。
+func (t *Task) DoneVerb() string {
+	switch t.Kind {
+	case "reply":
+		return "评论"
+	case "like":
+		return "点赞"
+	case "repost":
+		return "转发"
+	}
+	return "发帖"
+}
+
+func kindText(k string) string {
+	switch k {
+	case "reply":
+		return "评论"
+	case "like":
+		return "点赞"
+	case "repost":
+		return "转发"
+	}
+	return "发帖"
+}
+
 // 接单记录状态
 const (
 	SClaimed  = "claimed"
 	SSubmit   = "submitted"
+	SChecking = "checking" // 点赞/转发：接单方已声明完成，等发布方核对
 	SVerified = "verified"
 	SPayable  = "payable"
 	SAwait    = "awaiting_confirm"
@@ -129,7 +177,7 @@ const (
 )
 
 var subStatusText = map[string]string{
-	SClaimed: "已接单", SSubmit: "验证中", SVerified: "已验证", SPayable: "待付款", SAwait: "待确认到账",
+	SClaimed: "已接单", SSubmit: "验证中", SChecking: "待核对", SVerified: "已验证", SPayable: "待付款", SAwait: "待确认到账",
 	SPaid: "已完成", SOverdue: "逾期未付", SDisputed: "申诉中", SVoid: "作废", SExpired: "未按时提交", SDefault: "违约",
 }
 
@@ -190,6 +238,10 @@ type Submission struct {
 	DefaultedAt    int64
 	SelfDeal       int64 // 疑似自导自演（不计信用）
 	Unreadable     int64 // 复检连续读不到次数
+	CheckingAt     int64 // 点赞/转发：提交核对的时间
+	CheckNote      string
+	CheckRejects   int64
+	CheckAuto      int64 // 1 = 发布方超时未核对，视为通过
 	CreatedAt      int64
 	UpdatedAt      int64
 
@@ -383,3 +435,20 @@ type WorkerStats struct {
 }
 
 func joinLower(xs []string) string { return strings.ToLower(strings.Join(xs, "\n")) }
+
+// auditTextMap 记录页时间线显示的动作文案；空字符串表示不显示（sub.claim 已有合成的「接单」行）。
+var auditTextMap = map[string]string{
+	"sub.claim": "", "sub.submit": "提交链接，开始验证", "sub.verified": "验证通过", "sub.force_verified": "管理员判定验证通过", "sub.payable": "留存复检通过，进入待付款",
+	"sub.expired": "超时未提交，名额释放", "sub.void": "作废", "sub.overdue": "付款逾期", "sub.mark_paid": "发布方登记已付", "sub.paid": "付款完成", "sub.repaid": "补付到账",
+	"sub.underpaid": "少付处理", "sub.topup_requested": "接单方要求补差", "sub.defaulted": "记为违约", "sub.checking": "提交核对", "sub.check_ok": "发布方确认已完成",
+	"sub.check_no": "发布方未见到，退回重做", "sub.check_void": "两次核对未见到，作废", "sub.check_auto": "发布方超时未核对，视为通过", "sub.repost_detected": "自动检测到转发",
+	"dispute.open": "发起申诉", "dispute.resolve": "申诉裁决", "dispute.auto_close": "申诉自动结案", "task.takedown": "任务被下架",
+	"pay.payer_mismatch": "付款账户与认证不一致", "pay.unexpected": "收到未预期的付款",
+}
+
+func auditText(action string) string {
+	if v, ok := auditTextMap[action]; ok {
+		return v
+	}
+	return action
+}

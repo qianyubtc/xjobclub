@@ -81,12 +81,22 @@ func checkTweet(t *Task, worker *User, tw *Tweet, prefer int64) verdict {
 	if tw.CreatedMs > 0 && tw.CreatedMs < t.PublishedAt-5*60*1000 {
 		return verdict{Reason: "推文早于任务发布时间，不能用旧推文", Tweet: tw}
 	}
-	if tw.IsReply {
+	if t.Kind == "reply" {
+		if !tw.IsReply || (t.TargetTweetID != "" && tw.InReplyTo != t.TargetTweetID) {
+			return verdict{Reason: "这条不是对目标推文的直接回复，请在目标推文下方回复后再提交", Tweet: tw}
+		}
+	} else if tw.IsReply {
 		return verdict{Reason: "这是一条回复，请发原帖（可以引用，但不能回复）", Tweet: tw}
 	}
 	norm := normTweet(tw.Text)
 	if norm == "" {
 		return verdict{Reason: "推文正文为空", Tweet: tw}
+	}
+	if t.Kind == "reply" && t.MatchMode == "any" {
+		if n := int64(len([]rune(norm))); n < t.MinLen {
+			return verdict{Reason: fmt.Sprintf("评论太短：至少 %d 个字，当前 %d 个", t.MinLen, n), Tweet: tw}
+		}
+		return verdict{OK: true, Text: norm, Tweet: tw}
 	}
 	ok, idx := matchContent(t, norm, prefer)
 	if !ok {
@@ -149,7 +159,7 @@ func (a *App) verifySubmission(x *Submission) {
 	a.st.Audit(0, "sub.verified", "submission", x.ID, map[string]any{"tweet": x.TweetID}, "")
 	if recheck > 0 {
 		a.notify(w.ID, "verify", "验证通过", fmt.Sprintf("推文需保留 %s，复检通过后进入待付款。", dur(t.RetentionH)), x.Path())
-		a.notify(t.OwnerID, "task", "@"+w.Handle+" 已发帖并通过验证", fmt.Sprintf("《%s》：推文进入 %s 留存期，%s 复检通过后需要你付款 %s U。", t.Title, dur(t.RetentionH), fmtTime(recheck), fmtE8(t.RewardE8)), x.Path())
+		a.notify(t.OwnerID, "task", "@"+w.Handle+" 已"+t.DoneVerb()+"并通过验证", fmt.Sprintf("《%s》：推文进入 %s 留存期，%s 复检通过后需要你付款 %s U。", t.Title, dur(t.RetentionH), fmtTime(recheck), fmtE8(t.RewardE8)), x.Path())
 	} else {
 		a.notify(w.ID, "verify", "验证通过，等待付款", fmt.Sprintf("发布方须在 %s 内付款。", dur(t.PayWindowH)), x.Path())
 		a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已完成任务 %s，请在 %s 内付款 %s U。", w.Handle, t.Code, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())

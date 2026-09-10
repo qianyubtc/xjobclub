@@ -13,31 +13,35 @@ import (
 
 type subPage struct {
 	Base
-	X          *Submission
-	T          *Task
-	Worker     *User
-	Owner      *User
-	IsWorker   bool
-	IsOwner    bool
-	Content    string
-	IntentURL  string
-	Timeline   []AuditRow
-	Actors     map[int64]*User
-	Payments   []*Payment
-	ActivePay  *Payment
-	QR         string
-	Payee      *PayProfile
-	Dispute    *Dispute
-	Disputes   []*Dispute
-	CanSubmit  bool
-	CanPay     bool
-	CanMark    bool
-	CanConfirm bool
-	DisputeOK  []string // 当前身份可发起的申诉类型
-	Err        string
-	Amount     string // 应付金额（含少付时的差额）
-	TopupE8    int64
-	Cfg        *Config
+	X            *Submission
+	T            *Task
+	Worker       *User
+	Owner        *User
+	IsWorker     bool
+	IsOwner      bool
+	Content      string
+	IntentURL    string
+	Timeline     []AuditRow
+	Actors       map[int64]*User
+	Payments     []*Payment
+	ActivePay    *Payment
+	QR           string
+	Payee        *PayProfile
+	Dispute      *Dispute
+	Disputes     []*Dispute
+	CanSubmit    bool
+	CanPay       bool
+	CanMark      bool
+	CanConfirm   bool
+	CanDone      bool     // 点赞/转发：接单方可提交核对
+	CanCheck     bool     // 发布方可核对
+	TargetIntent string   // 一键点赞/转发
+	CheckDue     int64    // 核对期限
+	DisputeOK    []string // 当前身份可发起的申诉类型
+	Err          string
+	Amount       string // 应付金额（含少付时的差额）
+	TopupE8      int64
+	Cfg          *Config
 }
 
 func (a *App) loadSub(w http.ResponseWriter, r *http.Request) (*Submission, *Task, *User, bool) {
@@ -84,7 +88,7 @@ func (a *App) disputeOptions(x *Submission, t *Task, u *User) []string {
 			out = append(out, "C")
 		}
 	}
-	if u.ID == t.OwnerID && x.Status == SPayable && strings.HasPrefix(x.RecheckFlag, "复检未确认") {
+	if u.ID == t.OwnerID && x.Status == SPayable && (strings.HasPrefix(x.RecheckFlag, "复检未确认") || x.CheckAuto == 1) {
 		out = append(out, "D")
 	}
 	return out
@@ -113,6 +117,14 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 		p.Content = t.Contents[0]
 	}
 	p.IntentURL = intentFor(p.Content)
+	switch t.Kind {
+	case "reply":
+		p.IntentURL = "https://x.com/intent/post?in_reply_to=" + t.TargetTweetID + "&text=" + urlEscape(p.Content)
+	case "like":
+		p.TargetIntent = "https://x.com/intent/like?tweet_id=" + t.TargetTweetID
+	case "repost":
+		p.TargetIntent = "https://x.com/intent/retweet?tweet_id=" + t.TargetTweetID
+	}
 	p.Timeline, _ = a.st.AuditFor("submission", x.ID)
 	for _, row := range p.Timeline {
 		if row.ActorID > 0 {
@@ -129,6 +141,12 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	p.Dispute, _ = a.st.OpenDisputeForSub(x.ID)
 	p.DisputeOK = a.disputeOptions(x, t, u)
 	p.CanSubmit = p.IsWorker && (x.Status == SClaimed || (x.Status == SSubmit && x.NextVerifyAt == 0)) && x.VerifyAttempts < a.cfg.VerifyAttempts && x.ClaimExpiresAt > ms()
+	if t.Manual() {
+		p.CanSubmit = false
+		p.CanDone = p.IsWorker && x.Status == SClaimed && x.ClaimExpiresAt > ms() && x.VerifyAttempts < a.cfg.VerifyAttempts
+	}
+	p.CanCheck = p.IsOwner && x.Status == SChecking
+	p.CheckDue = x.CheckingAt + checkWindowMs
 	p.TopupE8 = 0
 	if x.Status == SAwait && x.UnderpaidE8 > 0 && x.UnderpaidE8 < t.RewardE8 {
 		p.TopupE8 = t.RewardE8 - x.UnderpaidE8
@@ -208,6 +226,10 @@ func (a *App) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if t.Manual() {
+		bad("这个任务不需要提交链接，完成后点「提交核对」即可")
+		return
+	}
 	if !(x.Status == SClaimed || (x.Status == SSubmit && x.NextVerifyAt == 0)) {
 		bad("当前状态不能提交")
 		return
@@ -241,6 +263,108 @@ func (a *App) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	a.st.Audit(u.ID, "sub.submit", "submission", x.ID, map[string]any{"tweet": id}, a.ip(r))
 	if nx, _ := a.st.GetSubByID(x.ID); nx != nil {
 		a.verifySubmission(nx) // 同步验证，几秒内给结果
+	}
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+const checkWindowMs = 48 * hourMs // 点赞/转发：发布方核对期限，超时视为通过
+
+// handleDone 点赞/转发任务：接单方声明已完成。转发先从公开时间线自动检测，检测到直接待付款；否则交发布方核对。
+func (a *App) handleDone(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != x.WorkerID {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if a.limited(w, r, "done", 10, time.Minute) {
+		return
+	}
+	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if !t.Manual() {
+		bad("这个任务需要提交推文链接")
+		return
+	}
+	if x.Status != SClaimed {
+		bad("当前状态不能提交")
+		return
+	}
+	if x.ClaimExpiresAt <= ms() {
+		bad("接单时限已过")
+		return
+	}
+	if x.VerifyAttempts >= a.cfg.VerifyAttempts {
+		bad(fmt.Sprintf("已用完 %d 次提交机会", a.cfg.VerifyAttempts))
+		return
+	}
+	if t.Kind == "repost" {
+		if found, ferr := a.fetchRetweeted(u.Handle, t.TargetTweetID); ferr == nil && found {
+			if ok2, _ := a.st.SetCheckedOK(x.ID, []string{SClaimed}, ms()+t.PayWindowH*hourMs, 0); ok2 {
+				a.st.Audit(u.ID, "sub.repost_detected", "submission", x.ID, map[string]any{"target": t.TargetTweetID}, a.ip(r))
+				a.notify(u.ID, "verify", "已检测到你的转发，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+				a.notify(t.OwnerID, "pay", "有一条记录待付款", fmt.Sprintf("@%s 已转发《%s》（已自动检测到），请在 %s 内付款 %s U。", u.Handle, t.Title, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+				a.flash(w, "已检测到你的转发，进入待付款")
+				http.Redirect(w, r, x.Path(), http.StatusFound)
+				return
+			}
+		}
+	}
+	if ok2, err := a.st.SetChecking(x.ID); err != nil || !ok2 {
+		bad("当前状态不能提交")
+		return
+	}
+	a.st.Audit(u.ID, "sub.checking", "submission", x.ID, nil, a.ip(r))
+	a.notify(t.OwnerID, "task", "请核对 @"+u.Handle+" 是否已"+t.DoneVerb(), fmt.Sprintf("《%s》：到 X 打开目标推文核对，确认后进入待付款；48 小时不处理视为通过。", t.Title), x.Path())
+	a.flash(w, "已提交，等发布方核对")
+	http.Redirect(w, r, x.Path(), http.StatusFound)
+}
+
+// handleCheck 发布方核对点赞/转发：ok 进入待付款；no 退回重做（第二次未见即作废并释放名额）。
+func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
+	x, t, u, ok := a.loadSub(w, r)
+	if !ok {
+		return
+	}
+	if u.ID != t.OwnerID && !a.isAdmin(u) {
+		a.errorPage(w, r, http.StatusForbidden, "没有权限", "")
+		return
+	}
+	if a.limited(w, r, "check", 60, 10*time.Minute) {
+		return
+	}
+	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
+	if x.Status != SChecking {
+		bad("当前状态不能核对")
+		return
+	}
+	handle := ""
+	if wk, _ := a.st.GetUserByID(x.WorkerID); wk != nil {
+		handle = wk.Handle
+	}
+	if r.FormValue("action") == "ok" {
+		if ok2, _ := a.st.SetCheckedOK(x.ID, []string{SChecking}, ms()+t.PayWindowH*hourMs, 0); !ok2 {
+			bad("当前状态不能核对")
+			return
+		}
+		a.st.Audit(u.ID, "sub.check_ok", "submission", x.ID, nil, a.ip(r))
+		a.notify(x.WorkerID, "verify", "发布方已确认，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+		a.flash(w, "已确认，进入待付款")
+		http.Redirect(w, r, x.Path(), http.StatusFound)
+		return
+	}
+	note := cleanText(r.FormValue("note"), 200, false)
+	if x.CheckRejects+1 >= 2 {
+		a.st.SetVoid(x.ID, []string{SChecking}, "发布方两次核对都未见到"+t.DoneVerb())
+		a.st.Audit(u.ID, "sub.check_void", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
+		a.notify(x.WorkerID, "verify", "记录作废", "发布方两次核对都没有看到你的"+t.DoneVerb()+"，名额已释放。"+note, x.Path())
+		a.flash(w, "已作废并释放名额")
+	} else {
+		a.st.SetCheckRejected(x.ID, note)
+		a.st.Audit(u.ID, "sub.check_no", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
+		a.notify(x.WorkerID, "verify", "发布方没有看到你的"+t.DoneVerb(), "请确认是用 @"+handle+" 完成的，然后重新提交核对。"+note, x.Path())
+		a.flash(w, "已退回给对方重做")
 	}
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }

@@ -125,6 +125,9 @@ func (a *App) funcs() template.FuncMap {
 		"inc":       func(i int) int { return i + 1 },
 		"i64":       func(i int) int64 { return int64(i) },
 		"xlink":     xUserLink,
+		"kindText":  kindText,
+		"auditText": auditText,
+		"trunc":     truncate,
 		"add":       func(a, b int64) int64 { return a + b },
 		"sub":       func(a, b int64) int64 { return a - b },
 		"mul":       func(a, b int64) int64 { return a * b },
@@ -148,6 +151,8 @@ func (a *App) funcs() template.FuncMap {
 			switch s {
 			case SClaimed, SSubmit:
 				return "进行中"
+			case SChecking:
+				return "待核对"
 			case SVerified:
 				return "已发帖·留存中"
 			case SPayable, SAwait, SDisputed:
@@ -229,7 +234,7 @@ func stClass(s string) string {
 	switch s {
 	case SPaid, "resolved", "closed":
 		return "good"
-	case SPayable, SAwait, SSubmit, SVerified, "evidence", "review", "jury", "voting", "appeal":
+	case SPayable, SAwait, SSubmit, SVerified, SChecking, "evidence", "review", "jury", "voting", "appeal":
 		return "wait"
 	case SOverdue, SDisputed:
 		return "warn"
@@ -292,6 +297,8 @@ func (a *App) routes() {
 	m.HandleFunc("GET /s/{code}", a.handleSub)
 	m.HandleFunc("GET /s/{code}/status", a.handleSubStatus)
 	m.HandleFunc("POST /s/{code}/submit", a.handleSubmit)
+	m.HandleFunc("POST /s/{code}/done", a.handleDone)
+	m.HandleFunc("POST /s/{code}/check", a.handleCheck)
 	m.HandleFunc("POST /s/{code}/pay/order", a.handlePayOrder)
 	m.HandleFunc("POST /s/{code}/pay/mark", a.handlePayMark)
 	m.HandleFunc("POST /s/{code}/pay/claim", a.handlePayClaim)
@@ -380,7 +387,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 }
 
 func (a *App) todoCount(u *User) int64 {
-	n := a.st.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status IN ('payable','overdue')`, u.ID)
+	n := a.st.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status IN ('payable','overdue','checking')`, u.ID)
 	n += a.st.WorkerLocked(u.ID)
 	n += a.st.count(`SELECT COUNT(*) FROM jury_invites i JOIN jury_cases c ON c.id=i.case_id WHERE i.user_id=? AND i.voted_at=0 AND c.status='voting'`, u.ID)
 	return n
@@ -591,9 +598,14 @@ func ownerNext(x *Submission) string {
 		if x.LastError != "" {
 			return "对方验证未通过，正在改（提交剩 " + left(x.ClaimExpiresAt) + "）"
 		}
-		return "等对方发帖回填（剩 " + left(x.ClaimExpiresAt) + "）"
+		if x.CheckNote != "" || x.CheckRejects > 0 {
+			return "已退回，等对方重做后再提交（剩 " + left(x.ClaimExpiresAt) + "）"
+		}
+		return "等对方完成并提交（剩 " + left(x.ClaimExpiresAt) + "）"
 	case SSubmit:
 		return "推文验证中"
+	case SChecking:
+		return "请到 X 核对后确认（" + left(x.CheckingAt+checkWindowMs) + " 内不处理视为通过）"
 	case SVerified:
 		return "已发帖，留存至 " + fmtTime(x.RecheckDueAt) + " 复检"
 	case SPayable:

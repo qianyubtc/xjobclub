@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-const subCols = `id,code,task_id,worker_id,variant_idx,status,prev_status,claimed_at,claim_expires_at,tweet_id,tweet_url,tweet_text,tweet_created_at,verify_attempts,verify_retries,last_error,next_verify_at,verified_at,recheck_due_at,recheck_flag,recheck_tries,payable_at,pay_deadline_at,overdue_at,reported_at,grace_until,marked_paid_at,marked_order_id,marked_note,underpaid_e8,topup_requested_at,topup_marked_at,topup_order_id,confirmed_at,confirm_method,paid_amount_e8,late,void_reason,defaulted_at,self_deal,unreadable,created_at,updated_at`
+const subCols = `id,code,task_id,worker_id,variant_idx,status,prev_status,claimed_at,claim_expires_at,tweet_id,tweet_url,tweet_text,tweet_created_at,verify_attempts,verify_retries,last_error,next_verify_at,verified_at,recheck_due_at,recheck_flag,recheck_tries,payable_at,pay_deadline_at,overdue_at,reported_at,grace_until,marked_paid_at,marked_order_id,marked_note,underpaid_e8,topup_requested_at,topup_marked_at,topup_order_id,confirmed_at,confirm_method,paid_amount_e8,late,void_reason,defaulted_at,self_deal,unreadable,created_at,updated_at,checking_at,check_note,check_rejects,check_auto`
 
 func scanSub(r scanner) (*Submission, error) {
 	var x Submission
 	var late int64
-	err := r.Scan(&x.ID, &x.Code, &x.TaskID, &x.WorkerID, &x.VariantIdx, &x.Status, &x.PrevStatus, &x.ClaimedAt, &x.ClaimExpiresAt, &x.TweetID, &x.TweetURL, &x.TweetText, &x.TweetCreatedAt, &x.VerifyAttempts, &x.VerifyRetries, &x.LastError, &x.NextVerifyAt, &x.VerifiedAt, &x.RecheckDueAt, &x.RecheckFlag, &x.RecheckTries, &x.PayableAt, &x.PayDeadlineAt, &x.OverdueAt, &x.ReportedAt, &x.GraceUntil, &x.MarkedPaidAt, &x.MarkedOrderID, &x.MarkedNote, &x.UnderpaidE8, &x.TopupRequested, &x.TopupMarkedAt, &x.TopupOrderID, &x.ConfirmedAt, &x.ConfirmMethod, &x.PaidAmountE8, &late, &x.VoidReason, &x.DefaultedAt, &x.SelfDeal, &x.Unreadable, &x.CreatedAt, &x.UpdatedAt)
+	err := r.Scan(&x.ID, &x.Code, &x.TaskID, &x.WorkerID, &x.VariantIdx, &x.Status, &x.PrevStatus, &x.ClaimedAt, &x.ClaimExpiresAt, &x.TweetID, &x.TweetURL, &x.TweetText, &x.TweetCreatedAt, &x.VerifyAttempts, &x.VerifyRetries, &x.LastError, &x.NextVerifyAt, &x.VerifiedAt, &x.RecheckDueAt, &x.RecheckFlag, &x.RecheckTries, &x.PayableAt, &x.PayDeadlineAt, &x.OverdueAt, &x.ReportedAt, &x.GraceUntil, &x.MarkedPaidAt, &x.MarkedOrderID, &x.MarkedNote, &x.UnderpaidE8, &x.TopupRequested, &x.TopupMarkedAt, &x.TopupOrderID, &x.ConfirmedAt, &x.ConfirmMethod, &x.PaidAmountE8, &late, &x.VoidReason, &x.DefaultedAt, &x.SelfDeal, &x.Unreadable, &x.CreatedAt, &x.UpdatedAt, &x.CheckingAt, &x.CheckNote, &x.CheckRejects, &x.CheckAuto)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -143,6 +143,28 @@ func (s *Store) SetVerified(id int64, text string, tweetCreated, recheckDue, pay
 		return s.transition(id, []string{SSubmit}, SPayable, `tweet_text=?, tweet_created_at=?, verified_at=?, last_error='', payable_at=?, pay_deadline_at=?`, text, tweetCreated, now, now, payDeadline)
 	}
 	return s.transition(id, []string{SSubmit}, SVerified, `tweet_text=?, tweet_created_at=?, verified_at=?, last_error='', recheck_due_at=?`, text, tweetCreated, now, recheckDue)
+}
+
+// SetChecking 点赞/转发任务：接单方声明已完成，等发布方核对（占一次提交机会）。
+func (s *Store) SetChecking(id int64) (bool, error) {
+	return s.transition(id, []string{SClaimed}, SChecking, `checking_at=?, last_error='', verify_attempts=verify_attempts+1`, ms())
+}
+
+// SetCheckRejected 发布方没看到：退回已接单，给对方至少 2 小时重做。
+func (s *Store) SetCheckRejected(id int64, note string) (bool, error) {
+	now := ms()
+	return s.transition(id, []string{SChecking}, SClaimed, `check_note=?, check_rejects=check_rejects+1, checking_at=0, claim_expires_at=MAX(claim_expires_at, ?)`, note, now+2*hourMs)
+}
+
+// SetCheckedOK 核对通过（发布方确认 / 转发自动检测到 / 超时视为通过）：这类任务无留存，直接待付款。
+func (s *Store) SetCheckedOK(id int64, from []string, payDeadline int64, auto int64) (bool, error) {
+	now := ms()
+	return s.transition(id, from, SPayable, `verified_at=?, payable_at=?, pay_deadline_at=?, check_auto=?, last_error='', check_note=''`, now, now, payDeadline, auto)
+}
+
+// DueCheckings 待核对超过期限的记录。
+func (s *Store) DueCheckings(before int64) ([]*Submission, error) {
+	return s.querySubs(`WHERE status='checking' AND checking_at>0 AND checking_at<? ORDER BY id LIMIT 200`, before)
 }
 
 func (s *Store) SetPayable(id, payDeadline int64, flag string) (bool, error) {
@@ -387,6 +409,7 @@ type PublicRecord struct {
 	At          int64 // 最近一次状态变化
 	ConfirmedAt int64
 	SelfDeal    int64
+	Kind        string
 }
 
 var publicStatuses = map[string][]string{
@@ -408,7 +431,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 	}
 	where := `WHERE x.status IN (` + placeholders(len(sts)) + `)`
 	total := s.count(`SELECT COUNT(*) FROM submissions x `+where, args...)
-	q := `SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+	q := `SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id ` + where +
 		fmt.Sprintf(` ORDER BY x.updated_at DESC LIMIT %d OFFSET %d`, limit, offset)
 	rows, err := s.db.Query(q, args...)
@@ -419,7 +442,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, r)
@@ -429,7 +452,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 
 // TaskPublicRecords 某任务的公开接单动态（不含过期/作废）。
 func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
-	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,x.self_deal
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,x.self_deal,t.kind
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
 		WHERE x.task_id=? AND x.status NOT IN ('expired','void') ORDER BY x.id DESC LIMIT 100`, taskID)
 	if err != nil {
@@ -439,7 +462,7 @@ func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.SelfDeal); err != nil {
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.SelfDeal, &r.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -449,7 +472,7 @@ func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
 
 // UserDoneRecords 某用户作为接单方最近完成的单。
 func (s *Store) UserDoneRecords(userID int64, limit int) ([]PublicRecord, error) {
-	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,t.kind
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
 		WHERE x.worker_id=? AND x.status='paid' ORDER BY x.confirmed_at DESC LIMIT ?`, userID, limit)
 	if err != nil {
@@ -459,7 +482,7 @@ func (s *Store) UserDoneRecords(userID int64, limit int) ([]PublicRecord, error)
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

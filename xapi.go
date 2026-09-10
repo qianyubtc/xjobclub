@@ -27,6 +27,7 @@ type Tweet struct {
 	CreatedMs int64
 	User      xUser
 	IsReply   bool
+	InReplyTo string // 直接回复的那条推文 ID
 	QuotedID  string
 	Edited    bool
 	Raw       []byte
@@ -136,6 +137,14 @@ func (a *App) fetchTweetRaw(id string) (*Tweet, error) {
 	}
 	tw.User = xUser{ID: t.User.IDStr, Name: t.User.Name, Handle: t.User.ScreenName, Avatar: t.User.Avatar}
 	tw.IsReply = t.Parent != nil || t.InReplyToStatusID != "" || t.InReplyToScreen != ""
+	tw.InReplyTo = t.InReplyToStatusID
+	if tw.InReplyTo == "" && t.Parent != nil {
+		var pt struct {
+			IDStr string `json:"id_str"`
+		}
+		json.Unmarshal(*t.Parent, &pt)
+		tw.InReplyTo = pt.IDStr
+	}
 	if t.Quoted != nil {
 		tw.QuotedID = t.Quoted.IDStr
 	}
@@ -204,4 +213,69 @@ func (a *App) fetchFollowers(handle string) (int64, error) {
 		return -1, errors.New("profile api: no followers")
 	}
 	return *d.User.Followers, nil
+}
+
+// fetchRetweeted 从 X 公开的个人时间线页里找接单方是否转发过目标推文。
+// 只能看到最近若干条动态，找不到不代表没转（交发布方核对）。
+func (a *App) fetchRetweeted(handle, targetID string) (bool, error) {
+	if !reHandleOK.MatchString(handle) {
+		return false, &fetchErr{Msg: "用户名不合法"}
+	}
+	req, _ := http.NewRequest("GET", a.cfg.XSyndAPI+"/srv/timeline-profile/screen-name/"+handle, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
+	resp, err := xHC.Do(req)
+	if err != nil {
+		return false, &fetchErr{Msg: "连不上 X 接口", Retry: true}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false, &fetchErr{Msg: fmt.Sprintf("X 接口返回 HTTP %d", resp.StatusCode), Retry: resp.StatusCode == 429 || resp.StatusCode >= 500}
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	return retweetedIn(string(body), targetID), nil
+}
+
+var reHandleOK = regexp.MustCompile(`^[A-Za-z0-9_]{1,20}$`)
+
+// retweetedIn 在时间线 JSON 文本里找 "retweeted_status":{...,"id_str":"<id>"}（同一层级的 id_str）。
+func retweetedIn(s, id string) bool {
+	if id == "" {
+		return false
+	}
+	if strings.Contains(s, `"retweeted_status_id_str":"`+id+`"`) {
+		return true
+	}
+	key := `"retweeted_status":{`
+	for i := 0; ; {
+		j := strings.Index(s[i:], key)
+		if j < 0 {
+			return false
+		}
+		p := i + j + len(key)
+		depth := 1
+		for k := p; k < len(s) && depth > 0; k++ {
+			switch s[k] {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			case '"':
+				if depth == 1 && strings.HasPrefix(s[k:], `"id_str":"`) {
+					v := s[k+len(`"id_str":"`):]
+					if e := strings.IndexByte(v, '"'); e > 0 && v[:e] == id {
+						return true
+					}
+				}
+				e := k + 1
+				for e < len(s) && s[e] != '"' {
+					if s[e] == '\\' {
+						e++
+					}
+					e++
+				}
+				k = e
+			}
+		}
+		i = p
+	}
 }

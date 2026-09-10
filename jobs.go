@@ -43,6 +43,7 @@ func (a *App) runJobs() {
 	a.retryVerifies(now)
 	a.runRechecks(now)
 	a.overduePayables(now)
+	a.autoApproveCheckings(now)
 	a.closeTasks()
 	a.syncPending()
 	a.routeDisputes(now)
@@ -219,5 +220,22 @@ func (a *App) backup() {
 		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 14*24*time.Hour {
 			os.Remove(filepath.Join(dir, e.Name()))
 		}
+	}
+}
+
+// autoApproveCheckings 点赞/转发待核对超过 48 小时发布方未处理：视为通过，进入待付款。
+func (a *App) autoApproveCheckings(now int64) {
+	list, _ := a.st.DueCheckings(now - checkWindowMs)
+	for _, x := range list {
+		t, _ := a.st.GetTaskByID(x.TaskID)
+		if t == nil {
+			continue
+		}
+		if ok, _ := a.st.SetCheckedOK(x.ID, []string{SChecking}, now+t.PayWindowH*hourMs, 1); !ok {
+			continue
+		}
+		a.st.Audit(0, "sub.check_auto", "submission", x.ID, nil, "")
+		a.notify(x.WorkerID, "verify", "发布方超时未核对，视为通过", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
+		a.notify(t.OwnerID, "pay", "待核对超时视为通过，请付款", fmt.Sprintf("《%s》有一条%s记录 48 小时未核对，已进入待付款，请在 %s 内付款 %s U。确实没完成的话可在记录页发起申诉。", t.Title, t.DoneVerb(), dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
 	}
 }

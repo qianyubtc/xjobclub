@@ -30,6 +30,7 @@ type mePage struct {
 	Cfg        *Config
 	TaskStats  map[int64]TaskCounts
 	Latest     []Notification
+	ToCheck    []*Submission // 待我核对（点赞/转发）
 }
 
 // TaskCounts 发布方任务卡上的计数。
@@ -68,6 +69,7 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	p.PubTier = a.pubTier(p.Stats)
 	p.WorkerTier = a.workerTier(p.WStats)
 	p.ToPay, _ = a.st.SubsByOwnerStatus(u.ID, SPayable, SOverdue)
+	p.ToCheck, _ = a.st.SubsByOwnerStatus(u.ID, SChecking)
 	p.ToConfirm, _ = a.st.SubsByWorkerStatus(u.ID, SAwait)
 	p.Active, _ = a.st.SubsByWorkerStatus(u.ID, SClaimed, SSubmit, SVerified)
 	p.MySubs, _ = a.st.SubsByWorker(u.ID, 50)
@@ -78,11 +80,12 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 		c.Done = t.DoneCount
 		c.PayDue = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status IN ('payable','overdue')`, t.ID)
 		c.Await = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status='awaiting_confirm'`, t.ID)
-		c.Active = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status IN ('claimed','submitted','verified','disputed')`, t.ID)
+		c.Active = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=? AND status IN ('claimed','submitted','verified','disputed','checking')`, t.ID)
 		p.TaskStats[t.ID] = c
 	}
 	p.Latest, _ = a.st.Notifications(u.ID, 5)
 	a.fillTasksUsers(p.Tasks, p.Users, p.ToPay)
+	a.fillTasksUsers(p.Tasks, p.Users, p.ToCheck)
 	a.fillTasksUsers(p.Tasks, p.Users, p.ToConfirm)
 	a.fillTasksUsers(p.Tasks, p.Users, p.Active)
 	a.fillTasksUsers(p.Tasks, p.Users, p.MySubs)

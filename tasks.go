@@ -228,6 +228,9 @@ type newForm struct {
 	Deadline  string
 	MinDays   string
 	MinFans   string
+	TType     string // post | reply | like | repost
+	Target    string // 目标推文链接
+	MinLen    string
 	AdTag     bool
 	Lens      []int
 	EditCode  string // 编辑已有任务
@@ -245,11 +248,16 @@ type newPage struct {
 	Remaining  int64
 	TTLs       []int64
 	CertNeeded bool
+	Kinds      []kindOpt
 }
+
+type kindOpt struct{ V, N, D string }
+
+var kindOpts = []kindOpt{{"post", "发帖", "发一条推文"}, {"reply", "评论", "回复目标推文"}, {"like", "点赞", "给目标推文点赞"}, {"repost", "转发", "转发目标推文"}}
 
 func (a *App) defaultForm() newForm {
 	c := a.cfg
-	return newForm{Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
+	return newForm{TType: "post", MinLen: "10", Contents: make([]string, c.MaxVariants), MatchMode: "exact", Slots: "5", ClaimTTL: strconv.FormatInt(c.ClaimTTLDefault, 10),
 		Retention: strconv.FormatInt(c.RetentionDefault, 10), PayWindow: strconv.FormatInt(c.PayWindowDefault, 10), Deadline: strconv.FormatInt(c.DeadlineDefault, 10), MinDays: "0", MinFans: "0", AdTag: true}
 }
 
@@ -269,7 +277,7 @@ func (a *App) newPageData(w http.ResponseWriter, r *http.Request, u *User, f new
 	if !containsInt(ttls, a.cfg.ClaimTTLDefault) {
 		ttls = append(ttls, a.cfg.ClaimTTLDefault)
 	}
-	return newPage{Base: a.base(w, r), F: f, Err: errMsg, Block: a.canPublish(u, st), Tier: tier, Stats: st, Cfg: a.cfg, Exposure: st.ExposureE8, Remaining: rem, TTLs: ttls, CertNeeded: a.cfg.CertFeeEnabled && u.CertPaidAt == 0}
+	return newPage{Base: a.base(w, r), Kinds: kindOpts, F: f, Err: errMsg, Block: a.canPublish(u, st), Tier: tier, Stats: st, Cfg: a.cfg, Exposure: st.ExposureE8, Remaining: rem, TTLs: ttls, CertNeeded: a.cfg.CertFeeEnabled && u.CertPaidAt == 0}
 }
 
 func (a *App) handleNewGet(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +289,7 @@ func (a *App) handleNewGet(w http.ResponseWriter, r *http.Request) {
 	if code := r.URL.Query().Get("edit"); code != "" {
 		if t, _ := a.st.GetTaskByCode(code); t != nil && t.OwnerID == u.ID && t.Status != "closed" {
 			f.EditCode, f.Title, f.MatchMode = t.Code, t.Title, t.MatchMode
+			f.TType, f.Target, f.MinLen = t.Kind, t.TargetURL, strconv.FormatInt(t.MinLen, 10)
 			copy(f.Contents, t.Contents)
 		}
 	}
@@ -309,15 +318,25 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	c := a.cfg
 	f := newForm{Title: cleanText(r.FormValue("title"), 40, false), MatchMode: r.FormValue("match_mode"), Reward: strings.TrimSpace(r.FormValue("reward")), Slots: r.FormValue("slots"),
 		ClaimTTL: r.FormValue("claim_ttl"), Retention: r.FormValue("retention"), PayWindow: r.FormValue("pay_window"), Deadline: r.FormValue("deadline"), MinDays: r.FormValue("min_days"), MinFans: strings.TrimSpace(r.FormValue("min_followers")),
-		AdTag: r.FormValue("ad_tag") == "1", EditCode: strings.TrimSpace(r.FormValue("edit"))}
+		AdTag: r.FormValue("ad_tag") == "1", EditCode: strings.TrimSpace(r.FormValue("edit")), TType: r.FormValue("ttype"), Target: strings.TrimSpace(r.FormValue("target")), MinLen: strings.TrimSpace(r.FormValue("min_len"))}
 	for i := int64(0); i < c.MaxVariants; i++ {
 		f.Contents = append(f.Contents, cleanText(r.FormValue("content"+strconv.FormatInt(i+1, 10)), 1000, true))
 	}
 	bad := func(m string) { a.render(w, http.StatusBadRequest, "new", a.newPageData(w, r, u, f, m)) }
 
-	if f.MatchMode != "contains" {
+	switch f.TType {
+	case "reply", "like", "repost":
+	default:
+		f.TType = "post"
+	}
+	manual := f.TType == "like" || f.TType == "repost" // 点赞/转发：无文案、无留存、由发布方核对
+	if manual {
+		f.AdTag, f.MatchMode = false, "exact"
+	}
+	if f.MatchMode != "contains" && !(f.TType == "reply" && f.MatchMode == "any") {
 		f.MatchMode = "exact"
 	}
+	freeReply := f.TType == "reply" && f.MatchMode == "any"
 	var contents, norm []string
 	for _, s := range f.Contents {
 		if strings.TrimSpace(s) == "" {
@@ -337,9 +356,23 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		bad("请填任务标题")
 		return
 	}
-	if len(contents) == 0 {
-		bad("至少写一条推文文案")
+	if manual {
+		contents, norm = nil, nil
+	}
+	if len(contents) == 0 && !manual && !freeReply {
+		if f.TType == "reply" {
+			bad("至少写一条评论文案，或者把匹配方式选成「自由发挥」")
+		} else {
+			bad("至少写一条推文文案")
+		}
 		return
+	}
+	var minLen int64
+	if freeReply {
+		minLen, _ = strconv.ParseInt(f.MinLen, 10, 64)
+		if minLen < 5 || minLen > 200 {
+			minLen = 10
+		}
 	}
 	// 编辑：只允许改标题/文案/匹配方式，且尚无人接单
 	if f.EditCode != "" {
@@ -367,6 +400,21 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		bad(m)
 		return
 	}
+	// 评论/点赞/转发：目标推文必须存在且可读（读一次并缓存作者与摘要）
+	var target *Tweet
+	if f.TType != "post" {
+		tid := tweetIDFrom(f.Target)
+		if tid == "" {
+			bad("请填目标推文链接，形如 https://x.com/某人/status/1234567890")
+			return
+		}
+		tw, ferr := a.fetchTweet(tid, "target")
+		if ferr != nil {
+			bad("目标推文读不到：" + ferr.Error())
+			return
+		}
+		target = tw
+	}
 	reward, err := parseAmountE8(f.Reward, 4)
 	if err != nil || reward < c.MinRewardE8 || reward > c.MaxRewardE8 {
 		bad(fmt.Sprintf("单价须在 %s–%s U 之间，最多 4 位小数", fmtE8(c.MinRewardE8), fmtE8(c.MaxRewardE8)))
@@ -383,6 +431,9 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ret, _ := strconv.ParseInt(f.Retention, 10, 64)
+	if manual {
+		ret = 0 // 点赞/转发无法复检
+	}
 	if !containsInt(c.RetentionOptions, ret) {
 		bad("留存时长不在可选范围")
 		return
@@ -411,7 +462,10 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := &Task{Code: newCode("T"), OwnerID: u.ID, Title: f.Title, Contents: contents, ContentsNorm: norm, MatchMode: f.MatchMode, RewardE8: reward, Currency: c.Currency,
-		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, MinFollowers: minFans, AdTag: f.AdTag}
+		SlotsTotal: slots, ClaimTTLMin: ttl, RetentionH: ret, PayWindowH: pw, DeadlineAt: ms() + days*dayMs, MinAccountDays: minDays, MinFollowers: minFans, AdTag: f.AdTag, Kind: f.TType, MinLen: minLen}
+	if target != nil {
+		t.TargetTweetID, t.TargetURL, t.TargetAuthor, t.TargetText = target.ID, "https://x.com/"+target.User.Handle+"/status/"+target.ID, target.User.Handle, truncate(target.Text, 140)
+	}
 	var id int64
 	for i := 0; i < 3; i++ {
 		id, err = a.st.CreateTask(t)
@@ -427,7 +481,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	a.st.Audit(u.ID, "task.create", "task", id, map[string]any{"reward": fmtE8(reward), "slots": slots}, a.ip(r))
+	a.st.Audit(u.ID, "task.create", "task", id, map[string]any{"reward": fmtE8(reward), "slots": slots, "kind": f.TType}, a.ip(r))
 	a.flash(w, "任务已发布")
 	http.Redirect(w, r, t.Path(), http.StatusFound)
 }
@@ -495,7 +549,7 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 				case SPayable, SOverdue:
 					p.Pending = append(p.Pending, x)
 					p.PayDueN++
-				case SAwait:
+				case SAwait, SChecking:
 					p.Pending = append(p.Pending, x)
 				case SClaimed, SSubmit, SVerified, SDisputed:
 					p.Active = append(p.Active, x)

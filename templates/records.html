@@ -11,7 +11,7 @@
 {{if .Rows}}{{range .Rows}}<div class="rec">
   <div class="rec-l"><span class="st {{stClass .Status}}">{{pubStatus .Status}}</span></div>
   <div class="rec-m">
-    <div class="rec-t"><a href="/u/{{.Worker}}">@{{.Worker}}</a> <span class="muted">接了</span> <a href="/u/{{.Owner}}">@{{.Owner}}</a> <span class="muted">的</span> <a href="/t/{{.TaskCode}}">{{.TaskTitle}}</a></div>
+    <div class="rec-t"><a href="/u/{{.Worker}}">@{{.Worker}}</a> <span class="muted">接了</span> <a href="/u/{{.Owner}}">@{{.Owner}}</a> <span class="muted">的</span> <a href="/t/{{.TaskCode}}">{{.TaskTitle}}</a>{{if and .Kind (ne .Kind "post")}} <span class="chip kind">{{kindText .Kind}}</span>{{end}}</div>
     <div class="rec-s">{{if .TweetID}}<a href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a> · {{end}}<code>{{.Code}}</code> · {{ago .At}}</div>
   </div>
   <div class="rec-r amt">{{amt .RewardE8}} U</div>

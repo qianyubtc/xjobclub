@@ -260,6 +260,16 @@ var migrations = []string{
 	`ALTER TABLE users ADD COLUMN followers_at INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE pay_profiles ADD COLUMN extra_methods TEXT NOT NULL DEFAULT '[]'`,
 	`ALTER TABLE tasks ADD COLUMN min_followers INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'post'`,
+	`ALTER TABLE tasks ADD COLUMN target_tweet_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN target_url TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN target_author TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN target_text TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN min_len INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN checking_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN check_note TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE submissions ADD COLUMN check_rejects INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE submissions ADD COLUMN check_auto INTEGER NOT NULL DEFAULT 0`,
 }
 
 func (s *Store) Close() { s.db.Close() }

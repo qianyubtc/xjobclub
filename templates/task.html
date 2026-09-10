@@ -1,20 +1,24 @@
 {{define "title"}}{{.T.Title}} · {{amt .T.RewardE8}} U · {{.SiteTitle}}{{end}}
 {{define "content"}}
 <section class="card">
-  <div class="row between"><h1 style="margin:0">{{.T.Title}}</h1><div class="big amt">{{amt .T.RewardE8}} <small style="font-size:13px">U / 条</small></div></div>
+  <div class="row between"><h1 style="margin:0">{{.T.Title}}</h1><div class="big amt">{{amt .T.RewardE8}} <small style="font-size:13px">U / {{.T.Unit}}</small></div></div>
   <div class="row small muted" style="margin:6px 0 10px"><span><code>{{.T.Code}}</code></span><span class="st {{if eq .T.Status "open"}}good{{else if eq .T.Status "paused"}}warn{{else}}muted{{end}}">{{if eq .T.Status "open"}}接单中{{else if eq .T.Status "paused"}}已暂停{{else}}已关闭{{end}}</span>{{if .Done}}<span class="st good">名额已全部完成</span>{{else if .Full}}<span class="st wait">名额已满</span>{{end}}<span>发布于 {{ftime .T.PublishedAt}}</span></div>
   <div class="kv">
+    {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">任务类型</span><span class="v"><b>{{.T.KindText}}</b>{{if eq .T.Kind "reply"}}：在目标推文下方直接回复{{else if eq .T.Kind "like"}}：给目标推文点赞，由发布方核对{{else}}：转发目标推文，系统自动检测或由发布方核对{{end}}</span>
+    <span class="k">目标推文</span><span class="v"><a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}}<div class="small muted">{{trunc .T.TargetText 80}}</div>{{end}}</span>{{end}}
     <span class="k">剩余名额</span><span class="v num">{{.T.Left}} / {{.T.SlotsTotal}}（已完成 {{.T.DoneCount}}）</span>
-    <span class="k">接单时限</span><span class="v">接单后 {{durMin .T.ClaimTTLMin}} 内回填推文链接</span>
-    <span class="k">留存要求</span><span class="v">{{if .T.RetentionH}}推文须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}无留存要求（验证通过即待付款）{{end}}</span>
+    <span class="k">接单时限</span><span class="v">接单后 {{durMin .T.ClaimTTLMin}} 内{{if .T.Manual}}完成{{.T.DoneVerb}}并提交核对{{else if eq .T.Kind "reply"}}回填你的评论链接{{else}}回填推文链接{{end}}</span>
+    <span class="k">留存要求</span><span class="v">{{if .T.Manual}}无法复检，发布方核对通过即待付款（48 小时不处理视为通过）{{else if .T.RetentionH}}{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}无留存要求（验证通过即待付款）{{end}}</span>
     <span class="k">付款时限</span><span class="v">待付款后 {{dur .T.PayWindowH}} 内，发布方逾期会被冻结并可被举报</span>
-    <span class="k">匹配方式</span><span class="v">{{if eq .T.MatchMode "contains"}}包含即可：推文里完整包含文案，可以加自己的话{{else}}全文一致：推文正文须与文案一致（空白与链接写法不计）{{end}}</span>
+    {{if not .T.Manual}}<span class="k">匹配方式</span><span class="v">{{if eq .T.MatchMode "any"}}自由发挥：评论内容不限，至少 {{.T.MinLen}} 个字{{else if eq .T.MatchMode "contains"}}包含即可：{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}里完整包含文案，可以加自己的话{{else}}全文一致：正文须与文案一致（空白与链接写法不计）{{end}}</span>{{end}}
     <span class="k">任务截止</span><span class="v">{{ftime .T.DeadlineAt}}</span>
     {{if or .T.MinAccountDays .T.MinFollowers}}<span class="k">接单要求</span><span class="v">{{if .T.MinAccountDays}}X 账号注册满 {{.T.MinAccountDays}} 天{{end}}{{if and .T.MinAccountDays .T.MinFollowers}} · {{end}}{{if .T.MinFollowers}}粉丝 ≥ {{.T.MinFollowers}}{{end}}</span>{{end}}
   </div>
-  <h2>推文文案{{if gt (len .T.Contents) 1}} <span class="muted small">共 {{len .T.Contents}} 个变体，接单时分配一条，发任一条都算</span>{{end}}</h2>
+  {{if .T.Manual}}<div class="hint" style="margin-top:10px">{{if eq .T.Kind "like"}}用你注册时的 X 账号给目标推文点赞，回来点「提交核对」。平台读不到点赞名单，由发布方在自己推文的点赞列表里核对。{{else}}用你注册时的 X 账号直接转发目标推文（不是引用），回来点「提交核对」。系统会从你的公开时间线自动检测，检测不到则由发布方核对。{{end}}任务期内请勿取消。</div>
+  {{else}}<h2>{{if eq .T.Kind "reply"}}评论文案{{else}}推文文案{{end}}{{if gt (len .T.Contents) 1}} <span class="muted small">共 {{len .T.Contents}} 个变体，接单时分配一条，发任一条都算</span>{{end}}</h2>
+  {{if and (eq .T.MatchMode "any") (not .T.Contents)}}<p class="muted">自由发挥：在目标推文下方写一条至少 {{.T.MinLen}} 个字的评论即可。</p>{{end}}
   {{range $i, $c := .T.Contents}}<pre class="tweet" id="c{{$i}}">{{$c}}</pre><div class="small muted">变体 {{inc $i}} <button type="button" class="copy" data-copy-from="c{{$i}}">复制</button></div>{{end}}
-  <div class="hint" style="margin-top:10px">⚠ 用自己的账号发布商业内容，请阅读文案再接。同一文案被大量账号发布可能触发 X 的重复内容与平台操纵规则，风险自负。</div>
+  <div class="hint" style="margin-top:10px">⚠ 用自己的账号发布商业内容，请阅读文案再接。同一文案被大量账号发布可能触发 X 的重复内容与平台操纵规则，风险自负。</div>{{end}}
 </section>
 
 {{if .IsOwner}}
@@ -23,7 +27,7 @@
   <div class="prog" aria-label="名额进度"><span class="p-done" style="width:{{pct .T.DoneCount .T.SlotsTotal}}%"></span><span class="p-pay" style="width:{{pct .PayDueN .T.SlotsTotal}}%"></span><span class="p-act" style="width:{{pct .ActiveN .T.SlotsTotal}}%"></span></div>
   <div class="legend"><span><i class="sw p-done"></i>已完成 {{.T.DoneCount}}</span><span><i class="sw p-pay"></i>待你付款 {{.PayDueN}}</span><span><i class="sw p-act"></i>进行中 {{.ActiveN}}</span><span><i class="sw p-free"></i>剩余名额 {{.T.Left}}</span></div>
   {{if .Pending}}<div class="grp need"><div class="grp-h">需要你处理 <span class="badge">{{len .Pending}}</span></div>
-    {{range .Pending}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt $.T.RewardE8}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}</div>{{end}}
+    {{range .Pending}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if eq .Status "checking"}}<form method="post" action="{{.Path}}/check" class="row" style="gap:6px"><input type="hidden" name="action" value="ok"><button class="btn sm" data-noguard>✅ 已{{$.T.DoneVerb}}</button></form><a class="btn sec sm" href="{{.Path}}#check">没看到</a>{{else}}{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt $.T.RewardE8}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}{{end}}</div>{{end}}
   </div>{{end}}
   {{if .Active}}<div class="grp"><div class="grp-h">进行中 <span class="muted">{{len .Active}}</span></div>
     {{range .Active}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}

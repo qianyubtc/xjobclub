@@ -27,6 +27,7 @@ type mockTweet struct {
 	ID, Text, UserID, Handle, Name string
 	CreatedMs                      int64
 	Reply                          bool
+	InReplyTo                      string // 直接回复的推文 ID
 }
 
 type syndMock struct {
@@ -49,7 +50,10 @@ func newSynd() *syndMock {
 		out := map[string]any{"__typename": "Tweet", "id_str": tw.ID, "text": tw.Text, "created_at": time.UnixMilli(tw.CreatedMs).UTC().Format(time.RFC3339Nano),
 			"user":     map[string]any{"id_str": tw.UserID, "name": tw.Name, "screen_name": tw.Handle, "profile_image_url_https": "https://pbs.twimg.com/x_normal.jpg"},
 			"entities": map[string]any{"urls": []any{}}}
-		if tw.Reply {
+		if tw.InReplyTo != "" {
+			out["in_reply_to_status_id_str"] = tw.InReplyTo
+			out["parent"] = map[string]any{"id_str": tw.InReplyTo}
+		} else if tw.Reply {
 			out["in_reply_to_status_id_str"] = "1"
 		}
 		json.NewEncoder(w).Encode(out)
@@ -244,14 +248,32 @@ type env struct {
 type profMock struct {
 	mu        sync.Mutex
 	followers map[string]int64
+	retweets  map[string][]string // handle → 转发过的推文 ID
 	srv       *httptest.Server
 }
 
 func newProf() *profMock {
-	m := &profMock{followers: map[string]int64{}}
+	m := &profMock{followers: map[string]int64{}, retweets: map[string][]string{}}
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/srv/") {
-			w.WriteHeader(404)
+			h := strings.TrimPrefix(r.URL.Path, "/srv/timeline-profile/screen-name/")
+			m.mu.Lock()
+			rts := m.retweets[h]
+			m.mu.Unlock()
+			if len(rts) == 0 {
+				w.WriteHeader(404)
+				return
+			}
+			var b strings.Builder
+			b.WriteString(`{"props":{"pageProps":{"timeline":{"entries":[`)
+			for i, id := range rts {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				b.WriteString(`{"content":{"tweet":{"id_str":"9` + id + `","entities":{"urls":[{"expanded_url":"https://x.com/a/status/1"}]},"retweeted_status":{"created_at":"x","entities":{"media":[{"id_str":"111"}]},"id_str":"` + id + `","user":{"id_str":"5","screen_name":"own"}}}}}`)
+			}
+			b.WriteString(`]}}}}`)
+			w.Write([]byte(b.String()))
 			return
 		}
 		h := strings.TrimPrefix(r.URL.Path, "/")
@@ -268,6 +290,11 @@ func newProf() *profMock {
 }
 
 func (m *profMock) set(handle string, n int64) { m.mu.Lock(); m.followers[handle] = n; m.mu.Unlock() }
+func (m *profMock) setRetweets(handle string, ids ...string) {
+	m.mu.Lock()
+	m.retweets[handle] = ids
+	m.mu.Unlock()
+}
 
 type browser struct {
 	e   *env
@@ -1304,5 +1331,157 @@ func TestFollowersFetchedAtRegister(t *testing.T) {
 	}
 	if _, body := e.browser("quinn").get("/u/quinn"); !strings.Contains(body, "7754") {
 		t.Fatal("profile should show followers")
+	}
+}
+
+// ---- 评论 / 点赞 / 转发 任务 ----
+
+func TestReplyLikeRepostTasks(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n") // 一个发布方连发四个任务
+	owner := e.browser("own")
+	owner.register("own", "7001")
+	owner.setUID("88001")
+	owner.certify("payer-O7")
+	ws := map[string]*browser{}
+	for i, h := range []string{"wa", "wb", "wc", "wd"} { // 连 owner 共 5 个注册，正好在同 IP 限额内
+		b := e.browser(h)
+		b.register(h, fmt.Sprint(7002+i))
+		b.setUID(fmt.Sprint(88002 + i))
+		ws[h] = b
+	}
+	e.synd.add(mockTweet{ID: "77001", Text: "目标推文", UserID: "7001", Handle: "own"})
+
+	// 1) 评论任务（自由发挥 ≥ 5 字）
+	task := owner.publish(taskForm(url.Values{"ttype": {"reply"}, "target": {"https://x.com/own/status/77001"}, "match_mode": {"any"}, "min_len": {"5"}, "content1": {""}}))
+	if task.Kind != "reply" || task.TargetTweetID != "77001" || task.TargetAuthor != "own" || task.MatchMode != "any" || task.MinLen != 5 {
+		t.Fatalf("reply task: %+v", task)
+	}
+	if _, body := ws["wa"].get(task.Path()); !strings.Contains(body, "目标推文") || !strings.Contains(body, "评论") {
+		t.Fatal("task page should show target and kind")
+	}
+	x := ws["wa"].claim(task)
+	if _, body := ws["wa"].get(x.Path()); !strings.Contains(body, "in_reply_to=77001") || !strings.Contains(body, "一键去 X 评论") {
+		t.Fatal("sub page should offer the reply intent")
+	}
+	e.synd.add(mockTweet{ID: "77101", Text: "这是一条很长的评论内容", UserID: "7002", Handle: "wa", InReplyTo: "5"})
+	x = ws["wa"].submitTweet(x, "77101")
+	if x.Status != SClaimed || !strings.Contains(x.LastError, "目标推文") {
+		t.Fatalf("reply to wrong tweet should fail: %s %q", x.Status, x.LastError)
+	}
+	e.synd.add(mockTweet{ID: "77102", Text: "短", UserID: "7002", Handle: "wa", InReplyTo: "77001"})
+	x = ws["wa"].submitTweet(x, "77102")
+	if x.Status != SClaimed || !strings.Contains(x.LastError, "太短") {
+		t.Fatalf("short reply should fail: %s %q", x.Status, x.LastError)
+	}
+	e.synd.add(mockTweet{ID: "77103", Text: "这条评论够长了吧朋友", UserID: "7002", Handle: "wa", InReplyTo: "77001"})
+	x = ws["wa"].submitTweet(x, "77103")
+	if x.Status != SPayable {
+		t.Fatalf("valid reply should be payable: %s %q", x.Status, x.LastError)
+	}
+	// 发帖任务里回复仍然被拒
+	post := owner.publish(taskForm(url.Values{"content1": {"发帖任务文案 https://example.com/q"}}))
+	px := ws["wb"].claim(post)
+	e.synd.add(mockTweet{ID: "77201", Text: "发帖任务文案 https://example.com/q", UserID: "7003", Handle: "wb", InReplyTo: "77001"})
+	if px = ws["wb"].submitTweet(px, "77201"); px.Status != SClaimed || !strings.Contains(px.LastError, "回复") {
+		t.Fatalf("post task must reject replies: %s %q", px.Status, px.LastError)
+	}
+
+	// 2) 点赞任务：留存被强制为 0；退回一次后确认；另一人两次退回作废
+	like := owner.publish(taskForm(url.Values{"ttype": {"like"}, "target": {"https://x.com/own/status/77001"}, "content1": {""}, "retention": {"24"}, "slots": {"2"}}))
+	if like.Kind != "like" || like.RetentionH != 0 || len(like.Contents) != 0 {
+		t.Fatalf("like task: %+v", like)
+	}
+	y := ws["wc"].claim(like)
+	if resp, _ := ws["wc"].post("/s/"+y.Code+"/submit", url.Values{"tweet_url": {"https://x.com/wc/status/1"}}); resp.StatusCode != 400 {
+		t.Fatal("like task must not accept tweet urls")
+	}
+	if _, body := ws["wc"].get(y.Path()); !strings.Contains(body, "intent/like?tweet_id=77001") || !strings.Contains(body, "提交核对") {
+		t.Fatal("like sub page should offer like intent")
+	}
+	ws["wc"].post("/s/"+y.Code+"/done", nil)
+	y, _ = e.a.st.GetSubByID(y.ID)
+	if y.Status != SChecking || y.CheckingAt == 0 {
+		t.Fatalf("after done: %s", y.Status)
+	}
+	if _, body := owner.get(y.Path()); !strings.Contains(body, "请核对") || !strings.Contains(body, "已点赞，确认") {
+		t.Fatal("owner should see the check panel")
+	}
+	if _, body := owner.get("/me"); !strings.Contains(body, "待我核对") {
+		t.Fatal("owner todo should list checking")
+	}
+	if resp, _ := ws["wc"].post("/s/"+y.Code+"/check", url.Values{"action": {"ok"}}); resp.StatusCode != 403 {
+		t.Fatal("worker must not self-check")
+	}
+	owner.post("/s/"+y.Code+"/check", url.Values{"action": {"no"}, "note": {"名单里没有你"}})
+	y, _ = e.a.st.GetSubByID(y.ID)
+	if y.Status != SClaimed || y.CheckRejects != 1 || y.CheckNote != "名单里没有你" {
+		t.Fatalf("after reject: %s %d %q", y.Status, y.CheckRejects, y.CheckNote)
+	}
+	ws["wc"].post("/s/"+y.Code+"/done", nil)
+	owner.post("/s/"+y.Code+"/check", url.Values{"action": {"ok"}})
+	y, _ = e.a.st.GetSubByID(y.ID)
+	if y.Status != SPayable || y.CheckAuto != 0 || y.PayDeadlineAt == 0 {
+		t.Fatalf("after confirm: %s", y.Status)
+	}
+	z := ws["wd"].claim(like)
+	ws["wd"].post("/s/"+z.Code+"/done", nil)
+	owner.post("/s/"+z.Code+"/check", url.Values{"action": {"no"}})
+	ws["wd"].post("/s/"+z.Code+"/done", nil)
+	owner.post("/s/"+z.Code+"/check", url.Values{"action": {"no"}})
+	z, _ = e.a.st.GetSubByID(z.ID)
+	if z.Status != SVoid || !strings.Contains(z.VoidReason, "两次") {
+		t.Fatalf("second reject should void: %s %q", z.Status, z.VoidReason)
+	}
+	if lk, _ := e.a.st.GetTaskByID(like.ID); lk.Left() != 1 {
+		t.Fatalf("void should release the slot: left=%d", lk.Left())
+	}
+
+	// 3) 转发任务：时间线里能看到 → 直接待付款；看不到 → 待核对 → 48 小时无人处理视为通过
+	rp := owner.publish(taskForm(url.Values{"ttype": {"repost"}, "target": {"https://x.com/own/status/77001"}, "content1": {""}, "slots": {"2"}}))
+	r1 := ws["wa"].claim(rp)
+	e.prof.setRetweets("wa", "123", "77001")
+	ws["wa"].post("/s/"+r1.Code+"/done", nil)
+	r1, _ = e.a.st.GetSubByID(r1.ID)
+	if r1.Status != SPayable || r1.CheckAuto != 0 {
+		t.Fatalf("detected repost should be payable: %s", r1.Status)
+	}
+	r2 := ws["wb"].claim(rp)
+	ws["wb"].post("/s/"+r2.Code+"/done", nil)
+	r2, _ = e.a.st.GetSubByID(r2.ID)
+	if r2.Status != SChecking {
+		t.Fatalf("undetected repost should wait for check: %s", r2.Status)
+	}
+	e.a.runJobs()
+	if r2, _ = e.a.st.GetSubByID(r2.ID); r2.Status != SChecking {
+		t.Fatal("must not auto-approve before 48h")
+	}
+	e.a.st.db.Exec(`UPDATE submissions SET checking_at=checking_at-49*3600*1000 WHERE id=?`, r2.ID)
+	e.a.runJobs()
+	r2, _ = e.a.st.GetSubByID(r2.ID)
+	if r2.Status != SPayable || r2.CheckAuto != 1 {
+		t.Fatalf("48h silence should auto-approve: %s auto=%d", r2.Status, r2.CheckAuto)
+	}
+	// 超时视为通过的记录，发布方可以发起 D 类申诉
+	if _, body := owner.get(r2.Path()); !strings.Contains(body, `value="D"`) {
+		t.Fatal("owner should be able to dispute an auto-approved record")
+	}
+	// 公开记录与首页不泄漏原始值
+	for _, pth := range []string{"/records", "/records?tab=active", "/", rp.Path(), like.Path(), task.Path()} {
+		if _, body := owner.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+			t.Fatalf("raw value leaked on %s", pth)
+		}
+	}
+	// 目标推文读不到 → 不能发布
+	if resp, _ := owner.post("/new", taskForm(url.Values{"ttype": {"like"}, "target": {"https://x.com/own/status/404404"}, "content1": {""}})); resp.StatusCode != 400 {
+		t.Fatal("unreadable target must be rejected")
+	}
+}
+
+func TestRetweetedIn(t *testing.T) {
+	body := `{"a":{"retweeted_status":{"entities":{"media":[{"id_str":"111"}],"urls":[]},"user":{"id_str":"222","screen_name":"x"},"id_str":"333"}},"b":{"retweeted_status_id_str":"444"}}`
+	for id, want := range map[string]bool{"333": true, "444": true, "111": false, "222": false, "": false} {
+		if got := retweetedIn(body, id); got != want {
+			t.Fatalf("retweetedIn(%q)=%v want %v", id, got, want)
+		}
 	}
 }
