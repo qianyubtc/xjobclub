@@ -68,6 +68,7 @@
     var bs=f.querySelectorAll('button:not([type=button]):not([type=reset]),input[type=submit]');setTimeout(function(){bs.forEach(function(b){b.classList.add('busy');b.setAttribute('aria-busy','true')})},0);
     setTimeout(function(){f.__busy=false;bs.forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})},8000)});
   window.addEventListener('pageshow',function(){document.querySelectorAll('button.busy').forEach(function(b){b.classList.remove('busy');b.removeAttribute('aria-busy')})});
+  document.querySelectorAll('form[data-autosubmit] select').forEach(function(sel){sel.addEventListener('change',function(){var f=sel.form;if(f.requestSubmit)f.requestSubmit();else f.submit()})});
   // 横向可滚的标签条：把当前项滚到可见位置
   document.querySelectorAll('.tabs').forEach(function(t){var on=t.querySelector('a.on');if(on&&t.scrollWidth>t.clientWidth+4)t.scrollLeft=Math.max(0,on.offsetLeft-(t.clientWidth-on.offsetWidth)/2)});
 })();
