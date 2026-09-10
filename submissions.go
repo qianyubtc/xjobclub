@@ -86,9 +86,11 @@ func (a *App) disputeOptions(x *Submission, t *Task, u *User) []string {
 			out = append(out, "B")
 		case x.Status == SClaimed && x.LastError != "" && x.VerifyAttempts > 0:
 			out = append(out, "C")
+		case x.Status == SVoid && strings.HasPrefix(x.VoidReason, "发布方两次核对") && ms()-x.UpdatedAt < dayMs:
+			out = append(out, "G") // 被发布方两次「没看到」作废，24 小时内可申诉
 		}
 	}
-	if u.ID == t.OwnerID && x.Status == SPayable && (strings.HasPrefix(x.RecheckFlag, "复检未确认") || x.CheckAuto == 1) {
+	if u.ID == t.OwnerID && x.Status == SPayable && (strings.HasPrefix(x.RecheckFlag, "复检未确认") || x.CheckAuto == 1 || t.Manual()) {
 		out = append(out, "D")
 	}
 	return out
@@ -343,7 +345,8 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 	if wk, _ := a.st.GetUserByID(x.WorkerID); wk != nil {
 		handle = wk.Handle
 	}
-	if r.FormValue("action") == "ok" {
+	switch r.FormValue("action") {
+	case "ok":
 		if ok2, _ := a.st.SetCheckedOK(x.ID, []string{SChecking}, ms()+t.PayWindowH*hourMs, 0); !ok2 {
 			bad("当前状态不能核对")
 			return
@@ -351,20 +354,28 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 		a.st.Audit(u.ID, "sub.check_ok", "submission", x.ID, nil, a.ip(r))
 		a.notify(x.WorkerID, "verify", "发布方已确认，等待付款", fmt.Sprintf("发布方须在 %s 内付款 %s U。", dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
 		a.flash(w, "已确认，进入待付款")
-		http.Redirect(w, r, x.Path(), http.StatusFound)
+	case "no":
+		note := cleanText(r.FormValue("note"), 200, false)
+		if x.CheckRejects+1 >= 2 {
+			if ok2, _ := a.st.SetVoid(x.ID, []string{SChecking}, "发布方两次核对都未见到"+t.DoneVerb()); !ok2 {
+				bad("当前状态不能核对（可能已超时视为通过）")
+				return
+			}
+			a.st.Audit(u.ID, "sub.check_void", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
+			a.notify(x.WorkerID, "verify", "记录作废", "发布方两次核对都没有看到你的"+t.DoneVerb()+"，名额已释放。如果你确实完成了，可在 24 小时内到记录页发起「核对争议」。"+note, x.Path())
+			a.flash(w, "已作废并释放名额")
+		} else {
+			if ok2, _ := a.st.SetCheckRejected(x.ID, note); !ok2 {
+				bad("当前状态不能核对（可能已超时视为通过）")
+				return
+			}
+			a.st.Audit(u.ID, "sub.check_no", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
+			a.notify(x.WorkerID, "verify", "发布方没有看到你的"+t.DoneVerb(), "请确认是用 @"+handle+" 完成的，然后重新提交核对。"+note, x.Path())
+			a.flash(w, "已退回给对方重做")
+		}
+	default:
+		bad("参数不对")
 		return
-	}
-	note := cleanText(r.FormValue("note"), 200, false)
-	if x.CheckRejects+1 >= 2 {
-		a.st.SetVoid(x.ID, []string{SChecking}, "发布方两次核对都未见到"+t.DoneVerb())
-		a.st.Audit(u.ID, "sub.check_void", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
-		a.notify(x.WorkerID, "verify", "记录作废", "发布方两次核对都没有看到你的"+t.DoneVerb()+"，名额已释放。"+note, x.Path())
-		a.flash(w, "已作废并释放名额")
-	} else {
-		a.st.SetCheckRejected(x.ID, note)
-		a.st.Audit(u.ID, "sub.check_no", "submission", x.ID, map[string]any{"note": note}, a.ip(r))
-		a.notify(x.WorkerID, "verify", "发布方没有看到你的"+t.DoneVerb(), "请确认是用 @"+handle+" 完成的，然后重新提交核对。"+note, x.Path())
-		a.flash(w, "已退回给对方重做")
 	}
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }

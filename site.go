@@ -71,7 +71,7 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	p.ToPay, _ = a.st.SubsByOwnerStatus(u.ID, SPayable, SOverdue)
 	p.ToCheck, _ = a.st.SubsByOwnerStatus(u.ID, SChecking)
 	p.ToConfirm, _ = a.st.SubsByWorkerStatus(u.ID, SAwait)
-	p.Active, _ = a.st.SubsByWorkerStatus(u.ID, SClaimed, SSubmit, SVerified)
+	p.Active, _ = a.st.SubsByWorkerStatus(u.ID, SClaimed, SSubmit, SChecking, SVerified)
 	p.MySubs, _ = a.st.SubsByWorker(u.ID, 50)
 	p.MyTasks, _ = a.st.TasksByOwner(u.ID)
 	p.TaskStats = map[int64]TaskCounts{}

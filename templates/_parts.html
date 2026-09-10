@@ -32,7 +32,8 @@
     <span class="k">发起方</span><span class="v">{{if .HideOpener}}匿名举报人{{else if .Opener}}{{template "usermini" .Opener}}{{end}}</span>
     {{if .Against}}<span class="k">被诉方</span><span class="v">{{template "usermini" .Against}}</span>{{end}}
     {{if .X}}<span class="k">记录</span><span class="v">{{if or .IsParty .IsAdmin}}<a href="{{.X.Path}}"><code>{{.X.Code}}</code></a>{{else}}<code>{{.X.Code}}</code>{{end}} · <span class="st {{stClass .X.Status}}">{{subStatus .X.Status}}</span></span>{{end}}
-    {{if .T}}<span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> · <span class="amt">{{amt .T.RewardE8}} U</span> · 留存 {{dur .T.RetentionH}} · 付款时限 {{dur .T.PayWindowH}}</span>{{end}}
+    {{if .T}}<span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a>{{if and .T.Kind (ne .T.Kind "post")}} <span class="chip kind">{{.T.KindText}}</span>{{end}} · <span class="amt">{{amt .T.RewardE8}} U</span>{{if not .T.Manual}} · 留存 {{dur .T.RetentionH}}{{end}} · 付款时限 {{dur .T.PayWindowH}}</span>
+    {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">目标推文</span><span class="v"><a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a></span>{{end}}{{end}}
     {{if .X}}{{if .X.TweetID}}<span class="k">推文</span><span class="v"><a href="https://x.com/i/web/status/{{.X.TweetID}}" target="_blank" rel="noopener">x.com/i/web/status/{{.X.TweetID}}</a></span>{{end}}
     {{if .X.VerifiedAt}}<span class="k">验证通过</span><span class="v">{{ftime .X.VerifiedAt}}{{if .X.RecheckFlag}} · {{.X.RecheckFlag}}{{end}}</span>{{end}}
     {{if .X.PayableAt}}<span class="k">进入待付款</span><span class="v">{{ftime .X.PayableAt}} · 截止 {{ftime .X.PayDeadlineAt}}</span>{{end}}

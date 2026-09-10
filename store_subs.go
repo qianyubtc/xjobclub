@@ -204,7 +204,7 @@ func (s *Store) SetMarkedPaid(id int64, orderID, note string) (bool, error) {
 	now := ms()
 	// 少付后的补差登记：只写 topup_* 列，不动原标记（原订单号是证据）
 	res, err := s.db.Exec(`UPDATE submissions SET topup_order_id=?, topup_marked_at=?, topup_requested_at=0, updated_at=?
-		WHERE id=? AND status='awaiting_confirm' AND underpaid_e8>0 AND topup_marked_at=0 AND marked_order_id<>?`, orderID, now, now, id, orderID)
+		WHERE id=? AND status='awaiting_confirm' AND underpaid_e8>0 AND topup_marked_at=0 AND (?='' OR marked_order_id<>?)`, orderID, now, now, id, orderID, orderID)
 	if err != nil {
 		return false, err
 	}
@@ -343,7 +343,7 @@ func (s *Store) PublisherFrozen(userID int64) int64 {
 }
 
 func (s *Store) ActiveClaims(workerID int64) int64 {
-	return s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status IN ('claimed','submitted')`, workerID)
+	return s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status IN ('claimed','submitted','checking')`, workerID)
 }
 
 func (s *Store) ClaimsSince(workerID, since int64) int64 {
@@ -351,13 +351,14 @@ func (s *Store) ClaimsSince(workerID, since int64) int64 {
 }
 
 func (s *Store) VoidCount(workerID, since int64) int64 {
-	return s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='void' AND void_reason LIKE '留存%' AND updated_at>=?`, workerID, since)
+	return s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='void' AND (void_reason LIKE '留存%' OR void_reason LIKE '发布方两次核对%') AND updated_at>=?`, workerID, since)
 }
 
 func (s *Store) PubStats(userID int64) PubStats {
 	var st PubStats
 	st.Paid = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid'`, userID)
-	st.PaidGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0`, userID)
+	st.PaidGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID) // 点赞/转发无法客观核验，不计信用
+	st.CheckVoids = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='void' AND x.void_reason LIKE '发布方两次核对%'`, userID)
 	st.Overdue = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.overdue_at>0`, userID)
 	st.Defaulted = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='defaulted'`, userID)
 	st.AvgPayMs = s.sum(`SELECT CAST(AVG(CASE WHEN x.marked_paid_at>0 THEN x.marked_paid_at ELSE x.confirmed_at END - x.payable_at) AS INTEGER) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.payable_at>0 AND x.confirmed_at>x.payable_at`, userID)
@@ -370,7 +371,7 @@ func (s *Store) PubStats(userID int64) PubStats {
 func (s *Store) WorkerStats(userID int64) WorkerStats {
 	var st WorkerStats
 	st.Done = s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='paid'`, userID)
-	st.DoneGateway = s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='paid' AND confirm_method='gateway' AND self_deal=0`, userID)
+	st.DoneGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE x.worker_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
 	st.Void30d = s.VoidCount(userID, ms()-30*dayMs)
 	st.Active = s.ActiveClaims(userID)
 	st.Today = s.ClaimsSince(userID, dayStartMs())

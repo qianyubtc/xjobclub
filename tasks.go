@@ -59,7 +59,7 @@ func (a *App) canPublish(u *User, st PubStats) string {
 }
 
 // canClaim 接单前置条件。
-func (a *App) canClaim(u *User, t *Task, st WorkerStats) string {
+func (a *App) canClaim(u *User, t *Task, st WorkerStats, refresh bool) string {
 	if u.ID == t.OwnerID {
 		return "不能接自己发布的任务"
 	}
@@ -91,8 +91,13 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats) string {
 		return fmt.Sprintf("该任务要求 X 账号注册满 %d 天", t.MinAccountDays)
 	}
 	if t.MinFollowers > 0 {
-		a.refreshFollowers(u, false)
+		if refresh {
+			a.refreshFollowers(u, false)
+		}
 		if u.Followers < 0 {
+			if !refresh {
+				return "" // 页面展示不发外部请求，接单时再读
+			}
 			return "该任务要求粉丝数，暂时读不到你的粉丝数，请稍后再试（可在「我的 → 设置」手动刷新）"
 		}
 		if u.Followers < t.MinFollowers {
@@ -152,6 +157,7 @@ type indexPage struct {
 	Pages   int
 	MinU    string
 	Retent  string
+	Kind    string
 	Sort    string
 	Counts  struct{ Users, Open, Paid int64 }
 	PaidSum int64
@@ -167,6 +173,10 @@ type recentDone struct {
 func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := TaskFilter{MaxRetentH: -1, Sort: q.Get("sort")}
+	switch q.Get("kind") {
+	case "post", "reply", "like", "repost":
+		f.Kind = q.Get("kind")
+	}
 	if v := q.Get("min"); v != "" {
 		if e8, err := parseAmountE8(v, 4); err == nil {
 			f.MinRewardE8 = e8
@@ -187,7 +197,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, r, err)
 		return
 	}
-	p := indexPage{Base: a.base(w, r), Tasks: tasks, Filter: f, Total: total, Page: page, Pages: int((total + size - 1) / size), MinU: q.Get("min"), Retent: q.Get("ret"), Sort: f.Sort, Owners: map[int64]*User{}, Stats: map[int64]PubStats{}}
+	p := indexPage{Base: a.base(w, r), Tasks: tasks, Filter: f, Total: total, Page: page, Pages: int((total + size - 1) / size), MinU: q.Get("min"), Retent: q.Get("ret"), Kind: f.Kind, Sort: f.Sort, Owners: map[int64]*User{}, Stats: map[int64]PubStats{}}
 	for _, t := range tasks {
 		if _, ok := p.Owners[t.OwnerID]; !ok {
 			if u, _ := a.st.GetUserByID(t.OwnerID); u != nil {
@@ -324,6 +334,12 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	}
 	bad := func(m string) { a.render(w, http.StatusBadRequest, "new", a.newPageData(w, r, u, f, m)) }
 
+	// 编辑：类型以已存的任务为准，不信表单
+	if f.EditCode != "" {
+		if et, _ := a.st.GetTaskByCode(f.EditCode); et != nil && et.OwnerID == u.ID {
+			f.TType = et.Kind
+		}
+	}
 	switch f.TType {
 	case "reply", "like", "repost":
 	default:
@@ -381,7 +397,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 			bad("任务不存在或不能编辑")
 			return
 		}
-		ok, err := a.st.UpdateTaskContent(t.ID, f.Title, contents, norm, f.MatchMode)
+		ok, err := a.st.UpdateTaskContent(t.ID, f.Title, contents, norm, f.MatchMode, minLen)
 		if err != nil {
 			a.fail(w, r, err)
 			return
@@ -413,6 +429,10 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 			bad("目标推文读不到：" + ferr.Error())
 			return
 		}
+		if f.TType == "like" && tw.User.ID != u.XID {
+			bad("点赞任务的目标必须是你自己发的推文：X 只让作者看到点赞名单，别人的推文你无法核对")
+			return
+		}
 		target = tw
 	}
 	reward, err := parseAmountE8(f.Reward, 4)
@@ -433,8 +453,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	ret, _ := strconv.ParseInt(f.Retention, 10, 64)
 	if manual {
 		ret = 0 // 点赞/转发无法复检
-	}
-	if !containsInt(c.RetentionOptions, ret) {
+	} else if !containsInt(c.RetentionOptions, ret) {
 		bad("留存时长不在可选范围")
 		return
 	}
@@ -535,7 +554,7 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 			p.Mine = subs[0]
 		}
 		if !p.IsOwner {
-			p.Block = a.canClaim(p.Me, t, a.st.WorkerStats(p.Me.ID))
+			p.Block = a.canClaim(p.Me, t, a.st.WorkerStats(p.Me.ID), false)
 		}
 		if p.IsOwner {
 			p.Subs, _ = a.st.SubsByTask(t.ID)
@@ -582,7 +601,7 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 		a.errorPage(w, r, http.StatusNotFound, "任务不存在", "")
 		return
 	}
-	if m := a.canClaim(u, t, a.st.WorkerStats(u.ID)); m != "" {
+	if m := a.canClaim(u, t, a.st.WorkerStats(u.ID), true); m != "" {
 		a.flash(w, m)
 		http.Redirect(w, r, t.Path(), http.StatusFound)
 		return
@@ -607,7 +626,7 @@ func (a *App) handleClaim(w http.ResponseWriter, r *http.Request) {
 		a.st.db.Exec(`UPDATE submissions SET self_deal=1 WHERE id=?`, x.ID)
 	}
 	a.st.Audit(u.ID, "sub.claim", "submission", x.ID, map[string]any{"task": t.Code}, a.ip(r))
-	a.notify(t.OwnerID, "task", "有人接单：@"+u.Handle+" 接了《"+t.Title+"》", fmt.Sprintf("对方需在 %s 内发帖并回填链接；本任务还剩 %d 个名额。", durMin(t.ClaimTTLMin), t.Left()-1), t.Path()+"#manage")
+	a.notify(t.OwnerID, "task", "有人接单：@"+u.Handle+" 接了《"+t.Title+"》", fmt.Sprintf("对方需在 %s 内%s；本任务还剩 %d 个名额。", durMin(t.ClaimTTLMin), claimTodo(t), t.Left()-1), t.Path()+"#manage")
 	http.Redirect(w, r, x.Path(), http.StatusFound)
 }
 
@@ -672,4 +691,15 @@ func (a *App) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		a.flash(w, "已"+map[string]string{"pause": "暂停接单", "resume": "恢复接单", "cancel": "取消剩余名额并关闭任务", "extend": "延长截止"}[action])
 	}
 	http.Redirect(w, r, t.Path(), http.StatusFound)
+}
+
+// claimTodo 接单后对方要做的事（通知文案）。
+func claimTodo(t *Task) string {
+	switch t.Kind {
+	case "reply":
+		return "评论并回填链接"
+	case "like", "repost":
+		return "完成" + t.DoneVerb() + "并提交核对"
+	}
+	return "发帖并回填链接"
 }

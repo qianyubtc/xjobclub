@@ -180,10 +180,8 @@ func (a *App) fetchFollowers(handle string) (int64, error) {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				if m := reFollowers.FindSubmatch(body); m != nil {
-					if n, err := strconv.ParseInt(string(m[1]), 10, 64); err == nil {
-						return n, nil
-					}
+				if n, ok := followersFor(body, handle); ok {
+					return n, nil
 				}
 			}
 		}
@@ -221,6 +219,8 @@ func (a *App) fetchRetweeted(handle, targetID string) (bool, error) {
 	if !reHandleOK.MatchString(handle) {
 		return false, &fetchErr{Msg: "用户名不合法"}
 	}
+	a.fetchSem <- struct{}{}
+	defer func() { <-a.fetchSem }()
 	req, _ := http.NewRequest("GET", a.cfg.XSyndAPI+"/srv/timeline-profile/screen-name/"+handle, nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
 	resp, err := xHC.Do(req)
@@ -278,4 +278,38 @@ func retweetedIn(s, id string) bool {
 		}
 		i = p
 	}
+}
+
+var (
+	reFollowersAll = regexp.MustCompile(`"followers_count":(\d+)`)
+	reScreenNames  = regexp.MustCompile(`"screen_name":"([A-Za-z0-9_]{1,20})"`)
+)
+
+// followersFor 从时间线页里取「这个用户」的粉丝数：页面里还嵌着被转发/被引用作者的 user 对象，
+// 所以按 screen_name 就近配对，而不是取第一个 followers_count。
+func followersFor(body []byte, handle string) (int64, bool) {
+	counts := reFollowersAll.FindAllSubmatchIndex(body, -1)
+	if len(counts) == 0 {
+		return 0, false
+	}
+	best, bestDist := -1, 1<<30
+	for _, sn := range reScreenNames.FindAllSubmatchIndex(body, -1) {
+		if !strings.EqualFold(string(body[sn[2]:sn[3]]), handle) {
+			continue
+		}
+		for i, c := range counts {
+			d := c[0] - sn[0]
+			if d < 0 {
+				d = -d
+			}
+			if d < bestDist && d < 6000 {
+				best, bestDist = i, d
+			}
+		}
+	}
+	if best < 0 {
+		best = 0 // 没配上就退回第一个
+	}
+	n, err := strconv.ParseInt(string(body[counts[best][2]:counts[best][3]]), 10, 64)
+	return n, err == nil
 }

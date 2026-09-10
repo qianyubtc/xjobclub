@@ -260,7 +260,7 @@ func (a *App) handleAdminSub(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch action {
 	case "void":
-		if ok, _ := a.st.SetVoid(x.ID, []string{SClaimed, SSubmit, SVerified, SPayable, SOverdue, SDisputed, SAwait}, "管理员作废："+reason); !ok {
+		if ok, _ := a.st.SetVoid(x.ID, []string{SClaimed, SSubmit, SChecking, SVerified, SPayable, SOverdue, SDisputed, SAwait}, "管理员作废："+reason); !ok {
 			err = ErrState
 		} else {
 			a.closePendingForSub(x.ID)

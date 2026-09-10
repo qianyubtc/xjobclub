@@ -1339,17 +1339,20 @@ func TestFollowersFetchedAtRegister(t *testing.T) {
 func TestReplyLikeRepostTasks(t *testing.T) {
 	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n") // 一个发布方连发四个任务
 	owner := e.browser("own")
-	owner.register("own", "7001")
+	ou := owner.register("own", "7001")
 	owner.setUID("88001")
 	owner.certify("payer-O7")
 	ws := map[string]*browser{}
-	for i, h := range []string{"wa", "wb", "wc", "wd"} { // 连 owner 共 5 个注册，正好在同 IP 限额内
+	admin := e.browser("admin")
+	admin.register("admin", "7009")
+	for i, h := range []string{"wa", "wb", "wc"} { // 连 owner、admin 共 5 个注册，正好在同 IP 限额内
 		b := e.browser(h)
 		b.register(h, fmt.Sprint(7002+i))
 		b.setUID(fmt.Sprint(88002 + i))
 		ws[h] = b
 	}
 	e.synd.add(mockTweet{ID: "77001", Text: "目标推文", UserID: "7001", Handle: "own"})
+	e.synd.add(mockTweet{ID: "77002", Text: "别人的推文", UserID: "7002", Handle: "wa"})
 
 	// 1) 评论任务（自由发挥 ≥ 5 字）
 	task := owner.publish(taskForm(url.Values{"ttype": {"reply"}, "target": {"https://x.com/own/status/77001"}, "match_mode": {"any"}, "min_len": {"5"}, "content1": {""}}))
@@ -1386,7 +1389,10 @@ func TestReplyLikeRepostTasks(t *testing.T) {
 		t.Fatalf("post task must reject replies: %s %q", px.Status, px.LastError)
 	}
 
-	// 2) 点赞任务：留存被强制为 0；退回一次后确认；另一人两次退回作废
+	// 2) 点赞任务：目标必须是自己的推文；留存被强制为 0；退回一次后确认；另一人两次退回作废后可发起核对争议
+	if resp, _ := owner.post("/new", taskForm(url.Values{"ttype": {"like"}, "target": {"https://x.com/wa/status/77002"}, "content1": {""}})); resp.StatusCode != 400 {
+		t.Fatal("like task must target the owner's own tweet")
+	}
 	like := owner.publish(taskForm(url.Values{"ttype": {"like"}, "target": {"https://x.com/own/status/77001"}, "content1": {""}, "retention": {"24"}, "slots": {"2"}}))
 	if like.Kind != "like" || like.RetentionH != 0 || len(like.Contents) != 0 {
 		t.Fatalf("like task: %+v", like)
@@ -1423,10 +1429,13 @@ func TestReplyLikeRepostTasks(t *testing.T) {
 	if y.Status != SPayable || y.CheckAuto != 0 || y.PayDeadlineAt == 0 {
 		t.Fatalf("after confirm: %s", y.Status)
 	}
-	z := ws["wd"].claim(like)
-	ws["wd"].post("/s/"+z.Code+"/done", nil)
+	z := ws["wa"].claim(like)
+	ws["wa"].post("/s/"+z.Code+"/done", nil)
 	owner.post("/s/"+z.Code+"/check", url.Values{"action": {"no"}})
-	ws["wd"].post("/s/"+z.Code+"/done", nil)
+	ws["wa"].post("/s/"+z.Code+"/done", nil)
+	if resp, _ := owner.post("/s/"+z.Code+"/check", url.Values{"action": {"maybe"}}); resp.StatusCode != 400 {
+		t.Fatal("unknown check action must be rejected")
+	}
 	owner.post("/s/"+z.Code+"/check", url.Values{"action": {"no"}})
 	z, _ = e.a.st.GetSubByID(z.ID)
 	if z.Status != SVoid || !strings.Contains(z.VoidReason, "两次") {
@@ -1434,6 +1443,30 @@ func TestReplyLikeRepostTasks(t *testing.T) {
 	}
 	if lk, _ := e.a.st.GetTaskByID(like.ID); lk.Left() != 1 {
 		t.Fatalf("void should release the slot: left=%d", lk.Left())
+	}
+	if st := e.a.st.PubStats(ou.ID); st.CheckVoids != 1 {
+		t.Fatalf("owner check-void count: %d", st.CheckVoids)
+	}
+	// 接单方 24 小时内可发起核对争议（G），管理员裁决成立 → 记录恢复为待付款
+	if _, body := ws["wa"].get(z.Path()); !strings.Contains(body, `value="G"`) {
+		t.Fatal("worker should be offered the G dispute after a check-void")
+	}
+	if resp, _ := ws["wa"].post("/s/"+z.Code+"/dispute", url.Values{"type": {"G"}, "text": {"我确实用本账号点了赞，有截图"}}); resp.StatusCode != 302 {
+		t.Fatal("open G dispute failed")
+	}
+	gd, _ := e.a.st.OpenDisputeForSub(z.ID)
+	if gd == nil || gd.Type != "G" {
+		t.Fatal("G dispute not opened")
+	}
+	if resp, body := admin.post("/admin/dispute/"+gd.Code+"/resolve", url.Values{"resolution": {"upheld"}, "note": {"截图属实"}}); resp.StatusCode != 302 {
+		t.Fatalf("resolve G: %d %s", resp.StatusCode, body[:min(200, len(body))])
+	}
+	z, _ = e.a.st.GetSubByID(z.ID)
+	if z.Status != SPayable || z.CheckAuto != 2 {
+		t.Fatalf("upheld G should restore payable: %s auto=%d", z.Status, z.CheckAuto)
+	}
+	if st := e.a.st.PubStats(ou.ID); st.CheckVoids != 0 {
+		t.Fatalf("check-void count after upheld dispute: %d", st.CheckVoids)
 	}
 
 	// 3) 转发任务：时间线里能看到 → 直接待付款；看不到 → 待核对 → 48 小时无人处理视为通过
@@ -1483,5 +1516,36 @@ func TestRetweetedIn(t *testing.T) {
 		if got := retweetedIn(body, id); got != want {
 			t.Fatalf("retweetedIn(%q)=%v want %v", id, got, want)
 		}
+	}
+}
+
+// 少付后的补差用「其它方式」登记：没有币安订单号也要能记上（此前 SQL 把空订单号当作重复而失败）。
+func TestTopupViaOtherMethod(t *testing.T) {
+	e := newEnv(t, "")
+	alice, kim := e.browser("alice"), e.browser("kim")
+	alice.register("alice", "9501")
+	kim.register("kim", "9502")
+	alice.setUID("71001")
+	alice.certify("payer-A95")
+	kim.bindKey("71002")
+	kim.post("/me/pay/method", url.Values{"label": {"TRC20"}, "value": {"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE"}})
+	task := alice.publish(taskForm(url.Values{"reward": {"2"}}))
+	x := kim.claim(task)
+	e.synd.add(mockTweet{ID: "9601", Text: task.Contents[0], UserID: "9502", Handle: "kim"})
+	x = kim.submitTweet(x, "9601")
+	alice.post("/s/"+x.Code+"/pay/order", nil)
+	p, _ := e.a.st.ActivePayment(x.ID, "gateway")
+	e.gw.pay(t, p.MerchantOrderID, "payer-A95", "1.5")
+	kim.post("/s/"+x.Code+"/underpaid", url.Values{"action": {"topup"}})
+	if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"via": {"other"}, "method": {"TRC20"}, "ref": {"a1b2c3d4e5f6"}}); resp.StatusCode != 302 {
+		t.Fatal("top-up via other method should be accepted")
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SAwait || x.TopupMarkedAt == 0 || x.TopupOrderID != "" {
+		t.Fatalf("top-up other-method state: %s marked=%d order=%q", x.Status, x.TopupMarkedAt, x.TopupOrderID)
+	}
+	kim.post("/s/"+x.Code+"/confirm", nil)
+	if x, _ = e.a.st.GetSubByID(x.ID); x.Status != SPaid || x.PaidAmountE8 != 200000000 {
+		t.Fatalf("confirm after other-method top-up: %s %d", x.Status, x.PaidAmountE8)
 	}
 }

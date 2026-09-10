@@ -57,13 +57,13 @@
   if(seg){var prev=slots.value==='1'?'5':slots.value;seg.addEventListener('change',function(e){var one=e.target.value==='one';document.getElementById('kindOne').classList.toggle('on',one);document.getElementById('kindMany').classList.toggle('on',!one);
     if(one){prev=slots.value!=='1'?slots.value:prev;slots.value='1';wrap.hidden=true}else{slots.value=prev||'5';wrap.hidden=false;slots.focus()}})}
   var tseg=document.getElementById('ttypeSeg');
-  var kindHints={post:'接单方用自己的账号发一条你写好的推文，系统自动验证。',reply:'接单方在目标推文下方直接回复，可指定文案或自由发挥，系统自动验证。',like:'接单方给目标推文点赞。平台读不到点赞名单，需要你到自己推文的点赞列表里核对（48 小时不处理视为通过）。',repost:'接单方转发目标推文。系统先从对方公开时间线自动检测，检测不到再由你核对。'};
+  var kindHints={post:'接单方用自己的账号发一条你写好的推文，系统自动验证。',reply:'接单方在目标推文下方直接回复，可指定文案或自由发挥，系统自动验证。',like:'接单方给目标推文点赞。目标必须是你自己的推文：平台读不到点赞名单，只有作者能在 X 上看到，需要你自己核对（48 小时不处理视为通过）。',repost:'接单方转发目标推文。系统先从对方公开时间线自动检测，检测不到再由你核对。'};
   function applyType(v){var manual=v==='like'||v==='repost';var tw=document.getElementById('targetWrap'),cw=document.getElementById('contentWrap'),rw=document.getElementById('retWrap'),ao=document.getElementById('anyOpt'),mw=document.getElementById('minLenWrap'),kh=document.getElementById('kindHint'),cl=document.getElementById('contentLabel'),tg=document.getElementById('target'),c1=document.getElementById('content1');
     if(tw)tw.hidden=v==='post';if(tg)tg.required=v!=='post';if(cw)cw.hidden=manual;if(rw)rw.hidden=manual;if(kh)kh.textContent=kindHints[v]||'';if(cl)cl.textContent=v==='reply'?'评论文案':'推文文案';
     var anyR=document.querySelector('input[name=match_mode][value=any]');if(ao){ao.hidden=v!=='reply';if(v!=='reply'&&anyR&&anyR.checked){document.querySelector('input[name=match_mode][value=exact]').checked=true}}
     var isAny=anyR&&anyR.checked&&v==='reply';if(mw)mw.hidden=!isAny;if(c1)c1.required=!manual&&!isAny;
     if(tseg)tseg.querySelectorAll('label').forEach(function(l){l.classList.toggle('on',l.querySelector('input').value===v)})}
-  if(tseg){tseg.addEventListener('change',function(e){if(e.target.name==='ttype')applyType(e.target.value)});document.querySelectorAll('input[name=match_mode]').forEach(function(r){r.addEventListener('change',function(){var cur=document.querySelector('input[name=ttype]:checked');applyType(cur?cur.value:'post')})});var cur=document.querySelector('input[name=ttype]:checked');applyType(cur?cur.value:'post')}
+  if(tseg){tseg.addEventListener('change',function(e){if(e.target.name==='ttype')applyType(e.target.value)});document.querySelectorAll('input[name=match_mode]').forEach(function(r){r.addEventListener('change',function(){var cur=document.querySelector('input[name=ttype]:checked');applyType(cur?cur.value:'post')})})}var cur0=document.querySelector('input[name=ttype]:checked')||document.querySelector('input[type=hidden][name=ttype]');applyType(cur0?cur0.value:'post');
   var add=document.getElementById('addVar');if(add)add.addEventListener('click',function(){var h=document.querySelector('.variant[hidden]');if(h){h.hidden=false;h.querySelector('textarea').focus()}else{toast('变体数已达上限')}});
 })();
 </script>{{end}}

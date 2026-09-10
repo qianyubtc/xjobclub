@@ -282,7 +282,7 @@ type Payment struct {
 // ---- 申诉 ----
 
 var disputeTypeText = map[string]string{
-	"A": "未付款", "B": "标记已付但未收到", "C": "验证误判", "D": "推文不合格", "E": "任务违规", "F": "黑名单申诉",
+	"A": "未付款", "B": "标记已付但未收到", "C": "验证误判", "D": "未完成或不合格", "E": "任务违规", "F": "黑名单申诉", "G": "核对争议",
 }
 
 func disputeType(t string) string {
@@ -419,6 +419,7 @@ type PubStats struct {
 	OpenTasks   int64
 	ExposureE8  int64
 	Frozen      bool
+	CheckVoids  int64 // 点赞/转发：两次核对未见到而作废的记录数（公示，防白嫖）
 }
 
 // WorkerStats 接单方公开统计。

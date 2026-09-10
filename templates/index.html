@@ -15,9 +15,10 @@
 </div>
 <a class="ticker" href="/records" aria-label="成交记录"><div class="rail">{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}</div></a>
 <div class="sec-h"><h2>接单大厅</h2><span class="eyebrow">{{.Total}} 单在线</span><a class="small" href="/records" style="margin-left:auto">成交记录 →</a></div>
-<form class="filters" method="get" action="/" data-autosubmit>
+<form class="filters" method="get" action="/" data-autosubmit data-noguard>
   <div><label>单价 ≥</label><input name="min" value="{{.MinU}}" inputmode="decimal" placeholder="U"></div>
   <div><label>留存 ≤</label><select name="ret"><option value="">不限</option><option value="0" {{if eq .Retent "0"}}selected{{end}}>无留存</option><option value="24" {{if eq .Retent "24"}}selected{{end}}>1 天</option><option value="72" {{if eq .Retent "72"}}selected{{end}}>3 天</option></select></div>
+  <div><label>类型</label><select name="kind"><option value="">全部</option><option value="post" {{if eq .Kind "post"}}selected{{end}}>发帖</option><option value="reply" {{if eq .Kind "reply"}}selected{{end}}>评论</option><option value="like" {{if eq .Kind "like"}}selected{{end}}>点赞</option><option value="repost" {{if eq .Kind "repost"}}selected{{end}}>转发</option></select></div>
   <div><label>排序</label><select name="sort"><option value="new" {{if ne .Sort "reward"}}selected{{end}}>最新</option><option value="reward" {{if eq .Sort "reward"}}selected{{end}}>单价高</option></select></div>
   <button class="btn sec sm" type="submit">筛选</button>
 </form>

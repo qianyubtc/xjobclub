@@ -92,6 +92,7 @@ type TaskFilter struct {
 	MinRewardE8 int64
 	MaxRetentH  int64  // -1 = 不限
 	Sort        string // new | reward
+	Kind        string // 空 = 全部
 }
 
 func (s *Store) ListOpenTasks(f TaskFilter, limit, offset int) ([]*Task, int64, error) {
@@ -104,6 +105,10 @@ func (s *Store) ListOpenTasks(f TaskFilter, limit, offset int) ([]*Task, int64, 
 	if f.MaxRetentH >= 0 {
 		where += ` AND retention_h<=?`
 		args = append(args, f.MaxRetentH)
+	}
+	if f.Kind != "" {
+		where += ` AND kind=?`
+		args = append(args, f.Kind)
 	}
 	total := s.count(`SELECT COUNT(*) FROM tasks `+where, args...)
 	order := ` ORDER BY published_at DESC`
@@ -129,7 +134,7 @@ func (s *Store) OpenTaskCount(ownerID int64) int64 {
 func (s *Store) Exposure(ownerID int64) int64 {
 	stale := ms() - 7*dayMs
 	open := s.sum(`SELECT SUM(t.reward_e8 * (t.slots_total - (SELECT COUNT(*) FROM submissions x WHERE x.task_id=t.id AND (x.status='paid' OR (x.status='awaiting_confirm' AND x.marked_paid_at>0 AND x.marked_paid_at<?))))) FROM tasks t WHERE t.owner_id=? AND t.status IN ('open','paused')`, stale, ownerID)
-	closed := s.sum(`SELECT SUM(t.reward_e8) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND t.status='closed' AND (x.status IN ('claimed','submitted','verified','payable','overdue','disputed') OR (x.status='awaiting_confirm' AND NOT (x.marked_paid_at>0 AND x.marked_paid_at<?)))`, ownerID, stale)
+	closed := s.sum(`SELECT SUM(t.reward_e8) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND t.status='closed' AND (x.status IN ('claimed','submitted','checking','verified','payable','overdue','disputed') OR (x.status='awaiting_confirm' AND NOT (x.marked_paid_at>0 AND x.marked_paid_at<?)))`, ownerID, stale)
 	return open + closed
 }
 
@@ -150,11 +155,11 @@ func (s *Store) ExtendDeadline(id, deadline int64) error {
 }
 
 // UpdateTaskContent 只在还没人接单时允许改文案与标题。
-func (s *Store) UpdateTaskContent(id int64, title string, contents, norm []string, mode string) (bool, error) {
+func (s *Store) UpdateTaskContent(id int64, title string, contents, norm []string, mode string, minLen int64) (bool, error) {
 	if s.count(`SELECT COUNT(*) FROM submissions WHERE task_id=?`, id) > 0 {
 		return false, nil
 	}
-	_, err := s.db.Exec(`UPDATE tasks SET title=?, contents=?, contents_norm=?, match_mode=?, updated_at=? WHERE id=?`, title, jsonList(contents), jsonList(norm), mode, ms(), id)
+	_, err := s.db.Exec(`UPDATE tasks SET title=?, contents=?, contents_norm=?, match_mode=?, min_len=?, updated_at=? WHERE id=?`, title, jsonList(contents), jsonList(norm), mode, minLen, ms(), id)
 	return err == nil, err
 }
 

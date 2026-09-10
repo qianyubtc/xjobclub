@@ -59,6 +59,8 @@ func resolutionOptions(t string) []resOption {
 		return []resOption{{"upheld", "成立：下架任务"}, {"banned", "成立且情节严重：下架并封禁发布方"}, {"rejected", "不成立"}}
 	case "F":
 		return []resOption{{"upheld", "成立：解除黑名单"}, {"rejected", "不成立：维持"}}
+	case "G":
+		return []resOption{{"upheld", "成立：接单方确已完成，记录进入待付款"}, {"rejected", "不成立：维持作废"}}
 	}
 	return nil
 }
@@ -560,7 +562,7 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 			return ErrState
 		}
 		if resolution == "upheld" {
-			ok, _ := a.st.SetVoid(x.ID, []string{SPayable, SOverdue, SAwait}, "裁决：推文不合格")
+			ok, _ := a.st.SetVoid(x.ID, []string{SPayable, SOverdue, SAwait}, "裁决：未完成或不合格")
 			if !ok {
 				return errors.New("记录当前状态不能作废（可能已完成）")
 			}
@@ -570,6 +572,20 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 		} else {
 			paused := ms() - d.CreatedAt
 			a.st.db.Exec(`UPDATE submissions SET pay_deadline_at=MAX(pay_deadline_at+?, ?), updated_at=? WHERE id=? AND status='payable'`, paused, ms()+dayMs, ms(), x.ID)
+		}
+	case "G":
+		// 点赞/转发被发布方两次「没看到」作废后，接单方申诉：成立则视为已完成，重新进入待付款
+		if x == nil || t == nil {
+			return ErrState
+		}
+		if resolution == "upheld" {
+			ok, _ := a.st.SetCheckedOK(x.ID, []string{SVoid}, ms()+t.PayWindowH*hourMs, 2)
+			if !ok {
+				return errors.New("记录当前状态不能恢复")
+			}
+			a.st.db.Exec(`UPDATE submissions SET void_reason='', updated_at=? WHERE id=?`, ms(), x.ID)
+			a.st.Audit(by, "sub.check_ok", "submission", x.ID, map[string]any{"reason": "G 类申诉成立"}, ip)
+			a.notify(t.OwnerID, "pay", "核对争议成立，请付款", fmt.Sprintf("记录 %s 经裁决视为已完成，请在 %s 内付款 %s U。", x.Code, dur(t.PayWindowH), fmtE8(t.RewardE8)), x.Path())
 		}
 	case "E":
 		if t == nil {
@@ -673,8 +689,8 @@ func (a *App) takedownTask(t *Task, by int64, ip string) {
 	subs, _ := a.st.SubsByTask(t.ID)
 	for _, x := range subs {
 		switch x.Status {
-		case SClaimed, SSubmit:
-			a.st.SetVoid(x.ID, []string{SClaimed, SSubmit}, "任务已下架")
+		case SClaimed, SSubmit, SChecking:
+			a.st.SetVoid(x.ID, []string{SClaimed, SSubmit, SChecking}, "任务已下架")
 			a.notify(x.WorkerID, "verify", "任务 "+t.Code+" 已被下架", "请删除相关推文，本条记录作废。", x.Path())
 		case SVerified:
 			if ok, _ := a.st.SetPayable(x.ID, ms()+t.PayWindowH*hourMs, "任务下架，免留存"); ok {

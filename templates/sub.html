@@ -18,7 +18,7 @@
   </div>
   {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
   {{if and (eq .X.Status "claimed") .X.LastError}}<div class="notice bad">上次验证未通过：{{.X.LastError}}<br><span class="small">已用 {{.X.VerifyAttempts}}/{{.Cfg.VerifyAttempts}} 次提交机会</span></div>{{end}}
-  {{if and (eq .X.Status "claimed") .X.CheckRejects}}<div class="notice bad">发布方核对后没有看到你的{{.T.DoneVerb}}{{if .X.CheckNote}}：{{.X.CheckNote}}{{end}}<br><span class="small">请确认是用 @{{.Worker.Handle}} 完成的，再重新提交核对；已退回 {{.X.CheckRejects}} 次，第二次退回将作废。</span></div>{{end}}
+  {{if and (eq .X.Status "claimed") .X.CheckRejects}}<div class="notice bad">发布方核对后没有看到你的{{.T.DoneVerb}}{{if .X.CheckNote}}：{{.X.CheckNote}}{{end}}<br><span class="small">请确认是用{{with .Worker}} @{{.Handle}}{{end}} 完成的，再重新提交核对；已退回 {{.X.CheckRejects}} 次，第二次退回将作废。</span></div>{{end}}
   {{if and (eq .X.Status "submitted") .X.NextVerifyAt}}<div class="notice"><span class="spin"></span>{{.X.LastError}}（下次 {{ftime .X.NextVerifyAt}}）</div>{{end}}
   {{if .Dispute}}<div class="notice warn">有申诉进行中：<a href="{{.Dispute.Path}}"><code>{{.Dispute.Code}}</code> {{dtype .Dispute.Type}} · {{dstatus .Dispute.Status}}</a></div>{{end}}
 </section>
@@ -52,7 +52,7 @@
   <h2 style="margin-top:0">① 去{{.T.DoneVerb}}</h2>
   <p class="small">目标：<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}}<span class="muted"> · {{.T.TargetText}}</span>{{end}}</p>
   <div class="btns"><a class="btn" href="{{.TargetIntent}}" target="_blank" rel="noopener">{{if eq .T.Kind "like"}}❤️ 一键去点赞{{else}}🔁 一键去转发{{end}}</a><a class="btn sec" href="{{.T.TargetURL}}" target="_blank" rel="noopener">打开目标推文</a></div>
-  <div class="hint">{{if eq .T.Kind "like"}}用注册时的 X 账号 <b>@{{.Worker.Handle}}</b> 点赞。发布方会在自己推文的点赞列表里核对。{{else}}用 <b>@{{.Worker.Handle}}</b> 直接转发（不是引用）。系统会从你的公开时间线自动检测，检测不到则交发布方核对。{{end}}任务期内请勿取消。</div>
+  <div class="hint">{{if eq .T.Kind "like"}}用注册时的 X 账号{{with .Worker}} <b>@{{.Handle}}</b>{{end}} 点赞。发布方会在自己推文的点赞列表里核对。{{else}}用{{with .Worker}} <b>@{{.Handle}}</b>{{end}} 直接转发（不是引用）。系统会从你的公开时间线自动检测，检测不到则交发布方核对。{{end}}任务期内请勿取消。</div>
   <h2>② 提交核对</h2>
   <form method="post" action="/s/{{.X.Code}}/done"><button class="btn">我已{{.T.DoneVerb}}，提交核对</button></form>
   <div class="hint" style="margin-top:8px">发布方 48 小时内核对，不处理视为通过；两次核对未见到会作废。</div>
@@ -81,15 +81,16 @@
     <div class="hint" style="margin-top:8px">标记后 24 小时内未处理，你将暂时不能接新任务。</div>{{end}}
 </section>
 {{end}}
+{{range .DisputeOK}}{{if eq . "G"}}<section class="card"><h2 style="margin-top:0">你确实{{$.T.DoneVerb}}了？</h2><p class="small">发布方两次核对都说没看到，记录已作废。如果你确认是用 @{{with $.Worker}}{{.Handle}}{{end}} 完成的，24 小时内可以发起核对争议，由管理员裁决；成立则记录恢复为待付款。</p><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="G"><label>说明情况（提交后可上传截图）</label><textarea name="text" required minlength="5" placeholder="例：我在 9 月 10 日 18:50 用本账号点了赞，点赞列表截图见附件"></textarea><button class="btn" style="margin-top:8px">发起核对争议</button></form></section>{{end}}{{end}}
 {{range .DisputeOK}}{{if eq . "C"}}<section class="card"><details class="fold"><summary>认为验证误判？申请人工复核</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="C"><label>说明（附推文链接）</label><textarea name="text" required minlength="5"></textarea><button class="btn sec sm" style="margin-top:8px">申请复核</button><div class="hint">申请后接单倒计时暂停。</div></form></details></section>{{end}}{{end}}
 {{end}}
 
 {{if .IsOwner}}
 {{if .CanCheck}}
 <section class="card" id="check">
-  <h2 style="margin-top:0">请核对：@{{.Worker.Handle}} 是否已{{.T.DoneVerb}}</h2>
-  <p class="small">打开<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">你的目标推文 ↗</a>，{{if eq .T.Kind "like"}}点开点赞数看名单{{else}}点开转发数看名单{{end}}，找 <b>@{{.Worker.Handle}}</b>。{{ftime .CheckDue}} 前不处理视为通过。</p>
-  <form method="post" action="/s/{{.X.Code}}/check" data-confirm="确认 @{{.Worker.Handle}} 已{{.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn">✅ 已{{.T.DoneVerb}}，确认</button></form>
+  <h2 style="margin-top:0">请核对：{{with .Worker}}@{{.Handle}}{{end}} 是否已{{.T.DoneVerb}}</h2>
+  <p class="small">打开<a href="{{.T.TargetURL}}" target="_blank" rel="noopener">你的目标推文 ↗</a>，{{if eq .T.Kind "like"}}点开点赞数看名单{{else}}点开转发数看名单{{end}}，找 <b>{{with .Worker}}@{{.Handle}}{{end}}</b>。{{ftime .CheckDue}} 前不处理视为通过。</p>
+  <form method="post" action="/s/{{.X.Code}}/check" data-confirm="确认{{with .Worker}} @{{.Handle}}{{end}} 已{{.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn">✅ 已{{.T.DoneVerb}}，确认</button></form>
   <details class="fold" style="margin-top:10px"><summary>没看到 TA 的{{.T.DoneVerb}}</summary><form method="post" action="/s/{{.X.Code}}/check"><input type="hidden" name="action" value="no"><label>给对方的说明（可选）</label><input name="note" maxlength="200" placeholder="例：点赞名单里没有你"><button class="btn sec sm" style="margin-top:8px">退回重做{{if .X.CheckRejects}}（第二次退回将作废并释放名额）{{end}}</button></form></details>
 </section>
 {{end}}
