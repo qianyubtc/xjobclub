@@ -610,6 +610,11 @@ func (a *App) afterPaid(x *Submission, t *Task, actor int64, method string) {
 // settlePaid touchDispute=false 用于裁决路径：申诉由 applyResolution 自己结案，不重复结案也不记警告。
 func (a *App) settlePaid(x *Submission, t *Task, actor int64, method string, touchDispute bool) {
 	a.st.Audit(actor, "sub.paid", "submission", x.ID, map[string]any{"method": method}, "")
+	if x.SelfDeal == 0 && a.st.SelfDealing(t.OwnerID, x.WorkerID) {
+		// 接单时没露馅、付款确认时同一网段 / 同一付款账户：照样不计信用（接单时的判定只是快照）
+		a.st.db.Exec(`UPDATE submissions SET self_deal=1 WHERE id=?`, x.ID)
+		x.SelfDeal = 1
+	}
 	a.closePendingForSub(x.ID)
 	if a.st.PublisherFrozen(t.OwnerID) == 0 {
 		a.st.UnfreezeOwnerTasks(t.OwnerID)

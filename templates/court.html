@@ -4,8 +4,8 @@
   <h1>小法庭</h1>
   <p class="small"><a href="/review"><b>任务发布审核 →</b></a>{{if .ReviewN}} 有 {{.ReviewN}} 个新任务等你投票{{else}} 新任务上线前先由社区投票把关{{end}}</p>
   <p class="small">"公说公有理"的争议（标记已付但未收到、推文不合格）由随机抽选的用户投票裁决，管理员只处理技术类与上诉。每案邀请 {{.Cfg.JuryInvite}} 人，前 {{.Cfg.JuryPanel}} 张有效票即结案；{{dur .Cfg.JuryWindowH}} 内不足 5 票转管理员。涉及上黑名单的裁决有 {{dur .Cfg.JuryAppealH}} 上诉期。</p>
-  <p class="small muted">陪审员资格：注册满 14 天、网关核销完成 ≥3 单、无处罚、与双方无交易关系。投中 +1 陪审分，不给钱。合格陪审员池：{{.Pool}} 人{{if lt .Pool .Cfg.JuryMinPool}}（未满 {{.Cfg.JuryMinPool}} 人，暂由管理员裁决）{{end}}。</p>
-  {{if .Me}}{{if .Eligible}}<div class="notice ok">你具备陪审员资格，被抽中时会收到通知。</div>{{else}}<div class="notice">完成 3 单网关核销的任务并注册满 14 天后可成为陪审员。</div>{{end}}{{end}}
+  <p class="small muted">陪审员资格：注册满 14 天、完成 ≥3 单（网关核销或对方确认）、无处罚、与双方无交易关系。投中 +1 陪审分，不给钱。合格陪审员池：{{.Pool}} 人{{if lt .Pool .Cfg.JuryMinPool}}（未满 {{.Cfg.JuryMinPool}} 人，暂由管理员裁决）{{end}}。</p>
+  {{if .Me}}{{if .Eligible}}<div class="notice ok">你具备陪审员资格，被抽中时会收到通知。</div>{{else}}<div class="notice">完成 3 单（网关核销或对方确认，不含点赞 / 转发）并注册满 14 天后可成为陪审员。</div>{{end}}{{end}}
 </section>
 {{if .Invited}}<section class="card"><h2 style="margin-top:0">待我投票（{{len .Invited}}）</h2>{{range .Invited}}{{$d := index $.Disputes .DisputeID}}<div class="msg"><a href="/court/{{.ID}}">案件 #{{.ID}}</a>{{if $d}} · {{dtype $d.Type}}{{end}} · 截止 {{ftime .DeadlineAt}}</div>{{end}}</section>{{end}}
 <section class="card"><h2 style="margin-top:0">案件归档</h2>{{if .Recent}}<div class="tbl"><table><tr><th>案件</th><th>类型</th><th>状态</th><th>票型</th><th>时间</th></tr>{{range .Recent}}<tr><td><a href="/court/{{.ID}}">#{{.ID}}</a></td><td>{{with index $.Disputes .DisputeID}}{{dtype .Type}}{{end}}</td><td><span class="st {{stClass .Status}}">{{if eq .Status "voting"}}投票中{{else if eq .Status "closed"}}已结案{{else}}转管理员{{end}}</span></td><td class="num">{{if ne .Status "voting"}}{{.VotesFor}} : {{.VotesAgainst}}（弃权 {{.Abstain}}）{{else}}结案后公开{{end}}</td><td class="small muted">{{fdate .CreatedAt}}</td></tr>{{end}}</table></div>{{else}}<p class="muted">还没有案件。</p>{{end}}</section>

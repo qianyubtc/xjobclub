@@ -160,7 +160,7 @@ func (s *Store) SetJuryBan(userID, until int64) {
 // JuryPoolSize 合格陪审员数量（冷启动门槛）。
 func (s *Store) JuryPoolSize(minAgeMs int64) int64 {
 	return s.count(`SELECT COUNT(*) FROM users u WHERE u.status='active' AND u.created_at<=? AND u.jury_banned_until<? AND u.suspended_until<?
-		AND (SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND (x.worker_id=u.id OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=u.id)))>=3`,
+		AND (SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND x.task_id IN (SELECT id FROM tasks WHERE kind NOT IN ('like','repost')) AND (x.worker_id=u.id OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=u.id)))>=3`,
 		ms()-minAgeMs, ms(), ms())
 }
 
@@ -169,7 +169,7 @@ func (s *Store) JuryCandidates(caseID, opener, against int64, minAgeMs int64, li
 	now := ms()
 	rows, err := s.db.Query(`SELECT u.id FROM users u WHERE u.status='active' AND u.created_at<=? AND u.jury_banned_until<? AND u.suspended_until<?
 		AND u.id NOT IN (?,?) AND u.jury_noshow<3
-		AND (SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND (x.worker_id=u.id OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=u.id)))>=3
+		AND (SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND x.task_id IN (SELECT id FROM tasks WHERE kind NOT IN ('like','repost')) AND (x.worker_id=u.id OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=u.id)))>=3
 		AND NOT EXISTS (SELECT 1 FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE x.created_at>? AND ((x.worker_id=u.id AND t.owner_id IN (?,?)) OR (t.owner_id=u.id AND x.worker_id IN (?,?))))
 		AND NOT EXISTS (SELECT 1 FROM jury_invites i WHERE i.case_id=? AND i.user_id=u.id)
 		AND (SELECT COUNT(*) FROM jury_invites i JOIN jury_cases c ON c.id=i.case_id WHERE i.user_id=u.id AND i.voted_at=0 AND c.status='voting')<3

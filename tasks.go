@@ -14,9 +14,10 @@ import (
 func (a *App) pubTier(st PubStats) Tier {
 	c := a.cfg
 	switch {
-	case st.PaidGateway >= 20 && st.Overdue <= 1 && st.AvgPayMs > 0 && st.AvgPayMs < dayMs:
+	// 常规要来自 ≥2 个不同接单方（一个小号刷不出来）；资深还要有 ≥3 笔网关核销（有付款账户锚点，2000 U 敞口不给无锚身份）
+	case st.PaidCredit >= 20 && st.PaidDistinct >= 10 && st.PaidGateway >= 3 && st.Overdue <= 1 && st.AvgPayMs > 0 && st.AvgPayMs < dayMs:
 		return Tier{Name: "资深", ExposureE8: c.ExposureSeniorE8, OpenTasks: c.OpenTasksSenior}
-	case st.PaidGateway >= 3 && st.Overdue <= 1:
+	case st.PaidCredit >= 3 && st.PaidDistinct >= 2 && st.Overdue <= 1:
 		return Tier{Name: "常规", ExposureE8: c.ExposureRegularE8, OpenTasks: c.OpenTasksRegular}
 	}
 	return Tier{Name: "新手", ExposureE8: c.ExposureNewbieE8, OpenTasks: c.OpenTasksNewbie}
@@ -25,9 +26,9 @@ func (a *App) pubTier(st PubStats) Tier {
 func (a *App) workerTier(st WorkerStats) Tier {
 	c := a.cfg
 	switch {
-	case st.DoneGateway >= 30 && st.Void30d == 0:
+	case st.DoneCredit >= 30 && st.DoneDistinct >= 5 && st.Void30d == 0:
 		return Tier{Name: "资深", Concurrent: c.ConcurSenior, Daily: c.DailySenior}
-	case st.DoneGateway >= 3:
+	case st.DoneCredit >= 3 && st.DoneDistinct >= 2:
 		return Tier{Name: "常规", Concurrent: c.ConcurRegular, Daily: c.DailyRegular}
 	}
 	return Tier{Name: "新手", Concurrent: c.ConcurNewbie, Daily: c.DailyNewbie}
@@ -521,7 +522,7 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	}
 	tier := a.pubTier(st)
 	if st.ExposureE8+reward*slots > tier.ExposureE8 {
-		bad(fmt.Sprintf("超出%s等级的敞口上限 %s U（当前已占用 %s U，本任务需要 %s U）。多完成几单网关核销的付款可以升级。", tier.Name, fmtE8(tier.ExposureE8), fmtE8(st.ExposureE8), fmtE8(reward*slots)))
+		bad(fmt.Sprintf("超出%s等级的敞口上限 %s U（当前已占用 %s U，本任务需要 %s U）。和至少两位不同的接单方完成 3 单并让对方确认到账（或网关自动核销）就能升级", tier.Name, fmtE8(tier.ExposureE8), fmtE8(st.ExposureE8), fmtE8(reward*slots)))
 		return
 	}
 	t := &Task{Code: newCode("T"), OwnerID: u.ID, Title: f.Title, Contents: contents, ContentsNorm: norm, MatchMode: f.MatchMode, RewardE8: reward, Currency: c.Currency,

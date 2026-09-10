@@ -60,7 +60,7 @@
 <section class="card flat">
   <h2 style="margin-top:0">发布方</h2>
   {{if .Owner}}<div class="row between">{{template "userline" .Owner}}<span class="tier">{{.OwnerTier.Name}}</span></div>
-  <div class="stats five" style="margin-top:10px"><div><b class="num">{{.OwnerStats.PaidGateway}}</b><span>网关核销付款</span></div><div><b class="num">{{.OwnerStats.Paid}}</b><span>已付款总数</span></div><div><b class="num" {{if .OwnerStats.Overdue}}style="color:var(--bad)"{{end}}>{{.OwnerStats.Overdue}}</b><span>逾期次数</span></div><div><b class="num">{{avgDur .OwnerStats.AvgPayMs}}</b><span>平均付款用时</span></div><div><b class="num">{{fdate .Owner.CreatedAt}}</b><span>注册</span></div></div>
+  <div class="stats five" style="margin-top:10px"><div><b class="num">{{.OwnerStats.PaidCredit}}</b><span>计信用付款</span></div><div><b class="num">{{.OwnerStats.Paid}}</b><span>已付款总数</span></div><div><b class="num" {{if .OwnerStats.Overdue}}style="color:var(--bad)"{{end}}>{{.OwnerStats.Overdue}}</b><span>逾期次数</span></div><div><b class="num">{{avgDur .OwnerStats.AvgPayMs}}</b><span>平均付款用时</span></div><div><b class="num">{{fdate .Owner.CreatedAt}}</b><span>注册</span></div></div>
   {{if .OwnerStats.Frozen}}<div class="notice bad">该发布方有逾期未付记录，当前冻结中。</div>{{end}}
   {{if .OwnerStats.CheckVoids}}<div class="notice warn small">该发布方有 {{.OwnerStats.CheckVoids}} 条点赞 / 转发记录因「两次核对未见到」作废。接这类任务请留好截图。</div>{{end}}
   {{if .Owner.CertPaidAt}}<div class="small muted"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已完成认证付款（付款账户已锚定）</div>{{end}}{{end}}

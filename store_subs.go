@@ -381,7 +381,10 @@ func (s *Store) VoidCount(workerID, since int64) int64 {
 func (s *Store) PubStats(userID int64) PubStats {
 	var st PubStats
 	st.Paid = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid'`, userID)
-	st.PaidGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID) // 点赞/转发无法客观核验，不计信用
+	// 计信用：网关核销、接单方确认、裁决完成都算；超时自动完成不算（沉默不是确认）；点赞/转发不算；自导自演不算
+	st.PaidCredit = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
+	st.PaidGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
+	st.PaidDistinct = s.count(`SELECT COUNT(DISTINCT x.worker_id) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
 	st.CheckVoids = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='void' AND x.void_reason LIKE '发布方两次核对%'`, userID)
 	st.Overdue = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.overdue_at>0`, userID)
 	st.Defaulted = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status='defaulted'`, userID)
@@ -395,7 +398,9 @@ func (s *Store) PubStats(userID int64) PubStats {
 func (s *Store) WorkerStats(userID int64) WorkerStats {
 	var st WorkerStats
 	st.Done = s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='paid'`, userID)
+	st.DoneCredit = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE x.worker_id=? AND x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
 	st.DoneGateway = s.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE x.worker_id=? AND x.status='paid' AND x.confirm_method='gateway' AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
+	st.DoneDistinct = s.count(`SELECT COUNT(DISTINCT t.owner_id) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE x.worker_id=? AND x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND t.kind NOT IN ('like','repost')`, userID)
 	st.Void30d = s.VoidCount(userID, ms()-30*dayMs)
 	st.Active = s.ActiveClaims(userID)
 	st.Today = s.ClaimsSince(userID, dayStartMs())

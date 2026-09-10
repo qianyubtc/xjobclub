@@ -15,7 +15,7 @@
 <li>接单锁定名额，须在接单时限（默认 {{durMin .Cfg.ClaimTTLDefault}}）内回填推文链接；每条记录最多 {{.Cfg.VerifyAttempts}} 次提交。过期释放名额，24 小时内不能再接同一任务。</li>
 <li>自动验证七项：链接可解析、推文可读、作者是本人（按 X 数字 ID）、未被其它记录使用、发布时间不早于任务发布、是原帖不是回复、正文与任一文案变体匹配。</li>
 <li>留存复检：任务设置的留存时长（默认 {{dur .Cfg.RetentionDefault}}）到期后重新检查；删帖、改文、作者不符则作废；读不到会隔 1 小时再确认，连续 3 次读不到才作废。30 天内 {{.Cfg.VoidStrikes}} 次留存不达标暂停接单 {{.Cfg.VoidSuspendDays}} 天。</li>
-<li>发布方的信用等级只数<b>网关自动核销</b>的付款；新手敞口 {{amt .Cfg.ExposureNewbieE8}} U，常规 {{amt .Cfg.ExposureRegularE8}} U，资深 {{amt .Cfg.ExposureSeniorE8}} U。</li>
+<li>信用等级按<b>计信用的完成数</b>升级：网关自动核销、接单方点「已收到」、裁决完成都算，超时自动完成、点赞 / 转发任务、自导自演（同账号 / 同付款账户 / 同 IP 段）不算；资深还要求来自足够多的不同对手方。新手敞口 {{amt .Cfg.ExposureNewbieE8}} U，常规 {{amt .Cfg.ExposureRegularE8}} U，资深 {{amt .Cfg.ExposureSeniorE8}} U。</li>
 </ul>
 <h2>3. 付款与到账</h2><ul class="small">
 <li>复检通过后进入待付款，发布方须在付款时限（默认 {{dur .Cfg.PayWindowDefault}}）内直接把 U 转给接单方的币安账户。平台不经手资金。</li>

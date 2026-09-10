@@ -458,27 +458,31 @@ type Tier struct {
 
 // PubStats 发布方公开统计。
 type PubStats struct {
-	Paid        int64
-	PaidGateway int64 // 网关核销且非自导自演，升级只数这个
-	Overdue     int64 // 逾期付款（含已补付）
-	Defaulted   int64
-	AvgPayMs    int64
-	OpenTasks   int64
-	ExposureE8  int64
-	Frozen      bool
-	CheckVoids  int64 // 点赞/转发：两次核对未见到而作废的记录数（公示，防白嫖）
+	Paid         int64
+	PaidCredit   int64 // 计信用的付款：网关核销 / 接单方确认 / 裁决完成，且非自导自演（不含超时自动完成）；升级只数这个
+	PaidGateway  int64 // 其中网关自动核销的
+	PaidDistinct int64 // 计信用付款来自多少个不同的接单方（资深门槛，防两个号互刷）
+	Overdue      int64 // 逾期付款（含已补付）
+	Defaulted    int64
+	AvgPayMs     int64
+	OpenTasks    int64
+	ExposureE8   int64
+	Frozen       bool
+	CheckVoids   int64 // 点赞/转发：两次核对未见到而作废的记录数（公示，防白嫖）
 }
 
 // WorkerStats 接单方公开统计。
 type WorkerStats struct {
-	Done        int64
-	DoneGateway int64
-	Void30d     int64
-	Active      int64 // 进行中的接单
-	Today       int64
-	EarnedE8    int64
-	Suspended   bool
-	AwaitCount  int64
+	Done         int64
+	DoneCredit   int64 // 计信用的完成：同 PaidCredit 口径
+	DoneGateway  int64 // 其中网关自动核销的
+	DoneDistinct int64 // 计信用完成来自多少个不同的发布方
+	Void30d      int64
+	Active       int64 // 进行中的接单
+	Today        int64
+	EarnedE8     int64
+	Suspended    bool
+	AwaitCount   int64
 }
 
 func joinLower(xs []string) string { return strings.ToLower(strings.Join(xs, "\n")) }

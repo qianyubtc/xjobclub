@@ -21,7 +21,7 @@
   <div class="stub">{{if .T.CPM}}<div class="r">{{amt .T.CpmE8}}</div><div class="u">U / 千浏览</div>{{else}}<div class="r">{{amt .T.RewardE8}}</div><div class="u">U / {{.T.Unit}}</div>{{end}}<div class="left">剩 {{.T.Left}} 单</div></div>
   <div class="body">
     <div class="tt">{{.T.Title}}</div>
-    <div class="meta">{{if .Owner}}<span>@{{.Owner.Handle}}</span><span>网关核销 <b>{{.Stats.PaidGateway}}</b> 单</span>{{if .Stats.Overdue}}<span style="color:var(--red)">逾期 {{.Stats.Overdue}}</span>{{end}}{{end}}<span>截止 {{fdate .T.DeadlineAt}}</span></div>
+    <div class="meta">{{if .Owner}}<span>@{{.Owner.Handle}}</span><span>完成付款 <b>{{.Stats.PaidCredit}}</b> 单</span>{{if .Stats.Overdue}}<span style="color:var(--red)">逾期 {{.Stats.Overdue}}</span>{{end}}{{end}}<span>截止 {{fdate .T.DeadlineAt}}</span></div>
     <div class="chips">{{if and .T.Kind (ne .T.Kind "post")}}<span class="chip kind">{{.T.KindText}}任务</span>{{end}}{{if .T.CPM}}<span class="chip hot">保底 {{amt .T.FloorE8}} · 封顶 {{amt .T.RewardE8}} U</span>{{end}}{{if not .T.Manual}}<span class="chip">留存 {{dur .T.RetentionH}}</span>{{end}}<span class="chip hot">{{dur .T.PayWindowH}} 内付款</span>{{if eq .T.MatchMode "contains"}}<span class="chip">可加自己的话</span>{{end}}{{if .T.MinAccountDays}}<span class="chip">X 注册满 {{.T.MinAccountDays}} 天</span>{{end}}{{if .T.MinFollowers}}<span class="chip">粉丝 ≥ {{.T.MinFollowers}}</span>{{end}}{{if .Stats.Frozen}}<span class="chip bad">发布方冻结中</span>{{end}}</div>
   </div>
 </a>{{end}}

@@ -185,7 +185,7 @@ func (a *App) handleCourt(w http.ResponseWriter, r *http.Request) {
 	p.Pool = a.st.JuryPoolSize(juryMinAgeMs)
 	if p.Me != nil {
 		p.Invited, _ = a.st.InvitedCasesFor(p.Me.ID)
-		p.Eligible = a.st.count(`SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method='gateway' AND (x.worker_id=? OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=?))`, p.Me.ID, p.Me.ID) >= 3 && ms()-p.Me.CreatedAt >= juryMinAgeMs
+		p.Eligible = a.st.count(`SELECT COUNT(*) FROM submissions x WHERE x.status='paid' AND x.confirm_method IN ('gateway','manual','admin') AND x.self_deal=0 AND x.task_id IN (SELECT id FROM tasks WHERE kind NOT IN ('like','repost')) AND (x.worker_id=? OR x.task_id IN (SELECT id FROM tasks WHERE owner_id=?))`, p.Me.ID, p.Me.ID) >= 3 && ms()-p.Me.CreatedAt >= juryMinAgeMs
 	}
 	p.Recent, _ = a.st.RecentCases(30)
 	for _, c := range append(append([]*JuryCase{}, p.Invited...), p.Recent...) {

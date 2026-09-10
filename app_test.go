@@ -319,7 +319,10 @@ type browser struct {
 	e   *env
 	c   *http.Client
 	who string
+	ip  string // 每个浏览器独立来源 IP（X-Real-IP），同 IP 段会被判自导自演
 }
+
+var browserSeq int
 
 func newEnv(t *testing.T, extra string) *env {
 	t.Helper()
@@ -328,7 +331,7 @@ func newEnv(t *testing.T, extra string) *env {
 	gw := newGW("testkey-testkey")
 	prof := newProf()
 	cfgPath := filepath.Join(dir, "config.env")
-	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nX_SYND_API=%s\nX_PROFILE_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\nREVIEW_ENABLED=false\n%s",
+	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nTRUST_PROXY=true\nTRUST_PROXY_HEADER=X-Real-IP\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nX_SYND_API=%s\nX_PROFILE_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\nREVIEW_ENABLED=false\n%s",
 		filepath.Join(dir, "t.db"), filepath.Join(dir, "up"), gw.srv.URL, synd.srv.URL, prof.srv.URL, prof.srv.URL, extra)), 0o644)
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
@@ -348,11 +351,14 @@ func newEnv(t *testing.T, extra string) *env {
 func (e *env) browser(who string) *browser {
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &browser{e: e, c: c, who: who}
+	browserSeq++
+	return &browser{e: e, c: c, who: who, ip: fmt.Sprintf("10.%d.%d.1", (browserSeq/250)%250, browserSeq%250)}
 }
 
 func (b *browser) get(path string) (*http.Response, string) {
-	resp, err := b.c.Get(b.e.srv.URL + path)
+	req, _ := http.NewRequest("GET", b.e.srv.URL+path, nil)
+	req.Header.Set("X-Real-IP", b.ip)
+	resp, err := b.c.Do(req)
 	if err != nil {
 		b.e.t.Fatal(err)
 	}
@@ -365,6 +371,7 @@ func (b *browser) post(path string, form url.Values) (*http.Response, string) {
 	req, _ := http.NewRequest("POST", b.e.srv.URL+path, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", b.e.srv.URL)
+	req.Header.Set("X-Real-IP", b.ip)
 	resp, err := b.c.Do(req)
 	if err != nil {
 		b.e.t.Fatal(err)
@@ -579,7 +586,7 @@ func TestFullFlowGateway(t *testing.T) {
 		t.Fatalf("after pay: %s %s %d", x.Status, x.ConfirmMethod, x.PaidAmountE8)
 	}
 	st := e.a.st.PubStats(au.ID)
-	if st.PaidGateway != 1 || st.Paid != 1 {
+	if st.PaidCredit != 1 || st.Paid != 1 {
 		t.Fatalf("stats %+v", st)
 	}
 	// 重复回调幂等
@@ -647,8 +654,8 @@ func TestManualOverdueBlacklist(t *testing.T) {
 	if x.Status != SPaid || x.ConfirmMethod != "manual" {
 		t.Fatalf("manual paid expected: %s", x.Status)
 	}
-	if st := e.a.st.PubStats(au.ID); st.PaidGateway != 0 || st.Paid != 1 {
-		t.Fatalf("manual should not count as gateway: %+v", st)
+	if st := e.a.st.PubStats(au.ID); st.PaidCredit != 1 || st.PaidGateway != 0 {
+		t.Fatalf("manual confirmation counts as credit but not as gateway: %+v", st)
 	}
 
 	// 第二条：另一个接单方 frank，走到逾期
@@ -2043,8 +2050,8 @@ func TestAutoConfirm(t *testing.T) {
 	if x.Status != SPaid || x.ConfirmMethod != "auto" || x.ConfirmedAt == 0 {
 		t.Fatalf("auto paid expected: %s %s", x.Status, x.ConfirmMethod)
 	}
-	if st := e.a.st.PubStats(au.ID); st.PaidGateway != 0 {
-		t.Fatal("auto confirmation must not build gateway credit")
+	if st := e.a.st.PubStats(au.ID); st.PaidCredit != 0 {
+		t.Fatal("auto confirmation must not build credit")
 	}
 	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%自动完成%'`, bu.ID); n != 1 {
 		t.Fatalf("worker should be told, got %d", n)
@@ -2134,4 +2141,103 @@ func TestAutoConfirm(t *testing.T) {
 			t.Fatalf("raw value leaked on %s", pth)
 		}
 	}
+}
+
+// ---- 信用口径：接单方确认也计信用，超时自动完成不计 ----
+
+func TestCreditCountsManualConfirm(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob, carl := e.browser("alice"), e.browser("bob"), e.browser("carl")
+	au := alice.register("alice", "7701")
+	bu := bob.register("bob", "7702")
+	carl.register("carl", "7703")
+	alice.setUID("43001")
+	alice.certify("payer-CR")
+	bob.setUID("43002")
+	carl.setUID("43003")
+	task := alice.publish(taskForm(url.Values{"slots": {"3"}}))
+	x := bob.claim(task)
+	e.synd.add(mockTweet{ID: "7801", Text: task.Contents[0], UserID: "7702", Handle: "bob"})
+	x = bob.submitTweet(x, "7801")
+	alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068888821"}})
+	if resp, _ := bob.post("/s/"+x.Code+"/confirm", nil); resp.StatusCode != 302 {
+		t.Fatal("confirm failed")
+	}
+	if x, _ = e.a.st.GetSubByID(x.ID); x.Status != SPaid || x.ConfirmMethod != "manual" {
+		t.Fatalf("manual paid expected: %s %s", x.Status, x.ConfirmMethod)
+	}
+	ps := e.a.st.PubStats(au.ID)
+	if ps.PaidCredit != 1 || ps.PaidGateway != 0 {
+		t.Fatalf("manual confirmation must count toward credit: credit=%d gateway=%d", ps.PaidCredit, ps.PaidGateway)
+	}
+	if ws := e.a.st.WorkerStats(bu.ID); ws.DoneCredit != 1 {
+		t.Fatalf("worker credit %d", ws.DoneCredit)
+	}
+	// 超时自动完成不计
+	x2 := carl.claim(task)
+	e.synd.add(mockTweet{ID: "7802", Text: task.Contents[0], UserID: "7703", Handle: "carl"})
+	x2 = carl.submitTweet(x2, "7802")
+	alice.post("/s/"+x2.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068888822"}})
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-25*hourMs, x2.ID)
+	e.a.runJobs()
+	if x2, _ = e.a.st.GetSubByID(x2.ID); x2.Status != SPaid || x2.ConfirmMethod != "auto" {
+		t.Fatalf("auto paid expected: %s %s", x2.Status, x2.ConfirmMethod)
+	}
+	if ps := e.a.st.PubStats(au.ID); ps.PaidCredit != 1 {
+		t.Fatalf("auto completion must not count: %d", ps.PaidCredit)
+	}
+	if _, body := alice.get("/me"); !strings.Contains(body, "计信用付款") {
+		t.Fatal("label")
+	}
+}
+
+// ---- 自导自演不计信用：接单时同网段，或付款结算时才同网段 ----
+
+func TestSelfDealNotCredited(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob, carl := e.browser("alice"), e.browser("bob"), e.browser("carl")
+	au := alice.register("alice", "7901")
+	bu := bob.register("bob", "7902")
+	cu := carl.register("carl", "7903")
+	alice.setUID("44001")
+	alice.certify("payer-SD")
+	bob.setUID("44002")
+	carl.setUID("44003")
+	task := alice.publish(taskForm(url.Values{"slots": {"3"}}))
+	// bob 从头到尾和 alice 同一网段 → 接单即标自导自演（ip_log 在渲染页面时记录，先各开一页）
+	alice.get("/me")
+	bob.ip = alice.ip
+	bob.get("/me")
+	x := bob.claim(task)
+	if x.SelfDeal != 1 {
+		t.Fatal("same /24 as the publisher must be flagged at claim")
+	}
+	e.synd.add(mockTweet{ID: "7911", Text: task.Contents[0], UserID: "7902", Handle: "bob"})
+	x = bob.submitTweet(x, "7911")
+	alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068888831"}})
+	bob.post("/s/"+x.Code+"/confirm", nil)
+	if st := e.a.st.PubStats(au.ID); st.Paid != 1 || st.PaidCredit != 0 {
+		t.Fatalf("self-deal must show as paid but not as credit: %+v", st)
+	}
+	if ws := e.a.st.WorkerStats(bu.ID); ws.DoneCredit != 0 {
+		t.Fatalf("worker credit %d", ws.DoneCredit)
+	}
+	// carl 接单时是另一网段，确认收款时换到 alice 的网段 → 结算时补判
+	x2 := carl.claim(task)
+	if x2.SelfDeal != 0 {
+		t.Fatal("different network must not be flagged")
+	}
+	e.synd.add(mockTweet{ID: "7912", Text: task.Contents[0], UserID: "7903", Handle: "carl"})
+	x2 = carl.submitTweet(x2, "7912")
+	alice.post("/s/"+x2.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068888832"}})
+	carl.ip = alice.ip
+	carl.get("/me")
+	carl.post("/s/"+x2.Code+"/confirm", nil)
+	if x2, _ = e.a.st.GetSubByID(x2.ID); x2.Status != SPaid || x2.SelfDeal != 1 {
+		t.Fatalf("settle-time recheck must flag: %s self_deal=%d", x2.Status, x2.SelfDeal)
+	}
+	if st := e.a.st.PubStats(au.ID); st.PaidCredit != 0 || st.Paid != 2 {
+		t.Fatalf("stats %+v", st)
+	}
+	_ = cu
 }
