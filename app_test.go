@@ -515,9 +515,13 @@ func TestFullFlowGateway(t *testing.T) {
 		t.Fatalf("status json: %d %s", resp.StatusCode, body)
 	}
 	// 页面渲染无错
-	for _, path := range []string{"/", task.Path(), x.Path(), "/me", "/me/pay", "/me/cert", "/u/alice", "/u/bob", "/rules", "/blacklist", "/court", "/me/notifications"} {
-		if resp, body := alice.get(path); resp.StatusCode != 200 || strings.Contains(body, "页面渲染失败") {
+	for _, path := range []string{"/", task.Path(), x.Path(), "/me", "/me?tab=tasks", "/me?tab=subs", "/me/pay", "/me/cert", "/u/alice", "/u/bob", "/rules", "/blacklist", "/court", "/me/notifications", "/records"} {
+		resp, body := alice.get(path)
+		if resp.StatusCode != 200 || strings.Contains(body, "页面渲染失败") {
 			t.Fatalf("page %s: %d", path, resp.StatusCode)
+		}
+		if strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+			t.Fatalf("page %s leaks raw Go values (field shadowing?)", path)
 		}
 	}
 }

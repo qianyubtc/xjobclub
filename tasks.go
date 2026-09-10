@@ -410,7 +410,7 @@ type taskPage struct {
 	Done       bool
 	CanEdit    bool
 	Public     []PublicRecord
-	Todo       []*Submission // 需要发布方处理：待付款 / 逾期 / 待确认（含补差）
+	Pending    []*Submission // 需要发布方处理：待付款 / 逾期 / 待确认（含补差）——不能叫 Todo，会遮住 Base.Todo
 	Active     []*Submission // 进行中：已接单 / 验证中 / 留存中 / 申诉中
 	DoneList   []*Submission
 	Dead       []*Submission // 过期 / 作废 / 违约
@@ -454,10 +454,10 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 				}
 				switch x.Status {
 				case SPayable, SOverdue:
-					p.Todo = append(p.Todo, x)
+					p.Pending = append(p.Pending, x)
 					p.PayDueN++
 				case SAwait:
-					p.Todo = append(p.Todo, x)
+					p.Pending = append(p.Pending, x)
 				case SClaimed, SSubmit, SVerified, SDisputed:
 					p.Active = append(p.Active, x)
 					p.ActiveN++
