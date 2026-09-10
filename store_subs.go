@@ -386,6 +386,7 @@ type PublicRecord struct {
 	TweetID     string
 	At          int64 // 最近一次状态变化
 	ConfirmedAt int64
+	SelfDeal    int64
 }
 
 var publicStatuses = map[string][]string{
@@ -428,7 +429,7 @@ func (s *Store) PublicRecords(tab string, limit, offset int) ([]PublicRecord, in
 
 // TaskPublicRecords 某任务的公开接单动态（不含过期/作废）。
 func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
-	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at
+	rows, err := s.db.Query(`SELECT x.code,x.status,t.code,t.title,t.reward_e8,w.handle,w.x_id,o.handle,o.x_id,x.tweet_id,x.updated_at,x.confirmed_at,x.self_deal
 		FROM submissions x JOIN tasks t ON t.id=x.task_id JOIN users w ON w.id=x.worker_id JOIN users o ON o.id=t.owner_id
 		WHERE x.task_id=? AND x.status NOT IN ('expired','void') ORDER BY x.id DESC LIMIT 100`, taskID)
 	if err != nil {
@@ -438,7 +439,7 @@ func (s *Store) TaskPublicRecords(taskID int64) ([]PublicRecord, error) {
 	var out []PublicRecord
 	for rows.Next() {
 		var r PublicRecord
-		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt); err != nil {
+		if err := rows.Scan(&r.Code, &r.Status, &r.TaskCode, &r.TaskTitle, &r.RewardE8, &r.Worker, &r.WorkerXID, &r.Owner, &r.OwnerXID, &r.TweetID, &r.At, &r.ConfirmedAt, &r.SelfDeal); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
