@@ -39,7 +39,7 @@
     {{range .DoneList}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st good">已完成</span><span class="next">{{ownerNext .}}{{if .Late}} · 逾期付款{{end}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
   </div>{{end}}
   {{if .Dead}}<details class="fold"><summary>过期 / 作废 / 违约（{{len .Dead}}）</summary>{{range .Dead}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span><a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}</details>{{end}}
-  {{if not .Subs}}<p class="muted small">还没有人接单。任务在大厅可见，接单后你会收到通知。</p>{{end}}
+  {{if not .Subs}}<p class="muted small">还没有人接单。{{if eq .T.Status "review"}}审核通过后才会出现在大厅。{{else if eq .T.Status "rejected"}}修改文案并重新提交审核后才会上线。{{else}}任务在大厅可见，接单后你会收到通知。{{end}}</p>{{end}}
   <h3>操作</h3>
   <div class="btns">
     {{if eq .T.Status "open"}}<form method="post" action="/t/{{.T.Code}}/pause"><button class="btn sec sm">暂停接单</button></form>{{end}}
