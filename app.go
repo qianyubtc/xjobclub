@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -393,9 +394,11 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		if a.cfg.ReviewEnabled {
 			b.ReviewN = a.st.ReviewPendingFor(b.Me.ID)
 		}
-		if v, ok := a.ipTouched.Load(b.Me.ID); !ok || b.Now-v.(int64) > 10*60*1000 {
-			a.ipTouched.Store(b.Me.ID, b.Now)
-			a.st.TouchIP(b.Me.ID, a.ip(r))
+		if ipk := strconv.FormatInt(b.Me.ID, 10) + "|" + ipPrefix(a.ip(r)); true {
+			if v, ok := a.ipTouched.Load(ipk); !ok || b.Now-v.(int64) > 10*60*1000 { // 同用户新网段立刻记（自导自演判定靠它），重复网段 10 分钟一次
+				a.ipTouched.Store(ipk, b.Now)
+				a.st.TouchIP(b.Me.ID, a.ip(r))
+			}
 		}
 	}
 	if w != nil {

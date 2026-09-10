@@ -360,7 +360,7 @@ func (a *App) handleAdminLift(w http.ResponseWriter, r *http.Request) {
 // cancelOpenTasks 把所有在售 / 暂停的任务转为只保留已接名额（CancelRemaining），并通知发布方。
 // 用于「平台改为先审核再上线」这类切换：旧任务不再开放新接单，已接的照常走完。
 func (a *App) cancelOpenTasks(reason string, by int64) int {
-	list, _ := a.st.queryTasks(`WHERE status IN ('open','paused') ORDER BY id`)
+	list, _ := a.st.queryTasks(`WHERE status='open' OR (status='paused' AND paused_by_freeze=0) ORDER BY id`) // 因冻结暂停的留给付清后自动恢复
 	n := 0
 	for _, t := range list {
 		if err := a.st.CancelRemaining(t.ID); err != nil {
@@ -369,7 +369,7 @@ func (a *App) cancelOpenTasks(reason string, by int64) int {
 		}
 		n++
 		a.st.Audit(by, "task.cancel_open", "task", t.ID, map[string]any{"reason": reason}, "")
-		a.notify(t.OwnerID, "task", "任务 "+t.Code+" 已停止接新单", reason+" 已被接的记录不受影响，可以重新发布新任务（新任务会先经社区审核）。", t.Path())
+		a.notify(t.OwnerID, "task", "任务 "+t.Code+" 已停止接新单", strings.TrimRight(reason, "。 ")+"。已被接的记录不受影响，可以重新发布新任务（新任务会先经社区审核）。", t.Path())
 	}
 	return n
 }

@@ -633,7 +633,7 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 	p.OwnerStats = a.st.PubStats(t.OwnerID)
 	p.OwnerTier = a.pubTier(p.OwnerStats)
 	p.Full = t.Left() <= 0
-	p.Done = t.SlotsTotal <= t.DoneCount
+	p.Done = t.SlotsTotal > 0 && t.DoneCount >= t.SlotsTotal && t.CloseReason != "cancelled"
 	p.Public, _ = a.st.TaskPublicRecords(t.ID)
 	if p.Me != nil {
 		p.IsOwner = p.Me.ID == t.OwnerID || p.IsAdmin
@@ -796,16 +796,16 @@ func (a *App) handleEligibleCount(w http.ResponseWriter, r *http.Request) {
 	if _, ok := a.requireUser(w, r); !ok {
 		return
 	}
+	if a.limited(w, r, "elig", 60, time.Minute) {
+		return
+	}
 	days, _ := strconv.ParseInt(r.URL.Query().Get("days"), 10, 64)
 	fans, _ := strconv.ParseInt(r.URL.Query().Get("fans"), 10, 64)
-	if days < 0 {
-		days = 0
-	}
-	if fans < 0 {
-		fans = 0
-	}
+	days = min(max(days, 0), 36500)
+	fans = min(max(fans, 0), 1000000000)
 	total := a.st.count(`SELECT COUNT(*) FROM users`)
-	n := a.st.count(`SELECT COUNT(*) FROM users WHERE (?=0 OR (x_created_ms>0 AND x_created_ms<?)) AND (?=0 OR followers>=?)`, days, ms()-days*dayMs, fans, fans)
+	// 与 canClaim 同口径：账号年龄未知的放行；粉丝数按已读到的算
+	n := a.st.count(`SELECT COUNT(*) FROM users WHERE (?=0 OR x_created_ms=0 OR x_created_ms<?) AND (?=0 OR followers>=?)`, days, ms()-days*dayMs, fans, fans)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	fmt.Fprintf(w, `{"n":%d,"total":%d}`, n, total)

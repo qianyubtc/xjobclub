@@ -244,7 +244,11 @@ var schema = []string{
 }
 
 func openStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := path
+	if !strings.HasPrefix(path, "file:") && !strings.Contains(path, "?") {
+		dsn = "file:" + path + "?_txlock=immediate" // 事务一开始就拿写锁，并发写者排队等 busy_timeout，而不是读后写时报 SQLITE_BUSY_SNAPSHOT
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}

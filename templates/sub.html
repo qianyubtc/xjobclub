@@ -1,7 +1,7 @@
 {{define "title"}}记录 {{.X.Code}} · {{subStatus .X.Status}} · {{.SiteTitle}}{{end}}
 {{define "content"}}
 <section class="card">
-  <div class="row between"><h1 style="margin:0">记录 <code>{{.X.Code}}</code></h1><div class="row" style="gap:12px"><span class="st {{stClass .X.Status}}" id="stPill" style="font-size:14px">{{subStatus .X.Status}}</span><div class="big amt" style="font-size:24px">{{if and .T.CPM (lt .X.SettleViews 0)}}≤ {{amt .T.RewardE8}}{{else}}{{amt .Due}}{{end}} <small style="font-size:12px">U</small></div></div></div>
+  <div class="row between"><h1 style="margin:0">记录 <code>{{.X.Code}}</code></h1><div class="row" style="gap:12px"><span class="st {{stClass .X.Status}}" id="stPill" style="font-size:14px">{{subStatus .X.Status}}</span>{{if not (or (eq .X.Status "void") (eq .X.Status "expired"))}}<div class="big amt" style="font-size:24px">{{if and .T.CPM (lt .X.SettleViews 0)}}≤ {{amt .T.RewardE8}}{{else}}{{amt .Due}}{{end}} <small style="font-size:12px">U</small></div>{{end}}</div></div>
   <div class="kv" style="margin-top:10px">
     <span class="k">任务</span><span class="v"><a href="{{.T.Path}}">{{.T.Title}}</a> <code>{{.T.Code}}</code>{{if and .T.Kind (ne .T.Kind "post")}} <span class="chip kind">{{.T.KindText}}</span>{{end}}</span>
     {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">目标推文</span><span class="v"><a href="{{.T.TargetURL}}" target="_blank" rel="noopener">@{{.T.TargetAuthor}} 的推文 ↗</a>{{if .T.TargetText}} <span class="muted small">{{trunc .T.TargetText 60}}</span>{{end}}</span>{{end}}

@@ -1882,6 +1882,9 @@ func TestCancelOpenTasksKeepsClaims(t *testing.T) {
 	if _, body := bob.get("/"); strings.Contains(body, "甲") || strings.Contains(body, "乙") {
 		t.Fatal("cancelled tasks must leave the lobby")
 	}
+	if _, body := alice.get(t2.Path()); strings.Contains(body, "名额已全部完成") || !strings.Contains(body, "已撤回") {
+		t.Fatal("cancelled task must read 已撤回, not 全部完成")
+	}
 	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%停止接新单%'`, t1.OwnerID); n != 2 {
 		t.Fatalf("owner notifications: %d", n)
 	}
