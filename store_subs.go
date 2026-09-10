@@ -248,6 +248,17 @@ func (s *Store) SetUnderpaid(id, actualE8 int64) (bool, error) {
 	return s.transition(id, []string{SPayable, SOverdue}, SAwait, `underpaid_e8=?, marked_paid_at=?, late=CASE WHEN status='overdue' THEN 1 ELSE late END`, actualE8, ms())
 }
 
+// SetAutoPaid 超时自动完成：只能从待确认到账转，且不能有未结申诉（申诉中的由裁决说了算），避免与刚发起的 B 类申诉抢跑。
+func (s *Store) SetAutoPaid(id, amountE8 int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE submissions SET status='paid', confirmed_at=?, confirm_method='auto', paid_amount_e8=?, late=CASE WHEN overdue_at>0 THEN 1 ELSE late END, updated_at=?
+		WHERE id=? AND status='awaiting_confirm' AND NOT EXISTS (SELECT 1 FROM disputes d WHERE d.submission_id=submissions.id AND d.status<>'resolved')`, ms(), amountE8, ms(), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
 // SetPaid 完成。late 由是否曾逾期决定（overdue_at>0）。
 func (s *Store) SetPaid(id int64, method string, amountE8 int64) (bool, error) {
 	return s.transition(id, []string{SPayable, SOverdue, SAwait, SDisputed}, SPaid, `confirmed_at=?, confirm_method=?, paid_amount_e8=?, late=CASE WHEN overdue_at>0 THEN 1 ELSE late END`, ms(), method, amountE8)
@@ -271,7 +282,7 @@ func (s *Store) SetDisputed(id int64, from []string) (bool, error) {
 func (s *Store) RestoreFromDispute(id int64, to string) (bool, error) {
 	set := ``
 	if to == SOverdue {
-		set = `overdue_at=CASE WHEN overdue_at=0 THEN ? ELSE overdue_at END, marked_paid_at=0, marked_order_id='', marked_note=''`
+		set = `overdue_at=CASE WHEN overdue_at=0 THEN ? ELSE overdue_at END, marked_paid_at=0, marked_order_id='', marked_note='', confirmed_at=0, confirm_method='', paid_amount_e8=0` // 自动完成后 B 类成立：撤销完成
 		return s.transition(id, []string{SDisputed}, to, set, ms())
 	}
 	return s.transition(id, []string{SDisputed}, to, "")
@@ -341,8 +352,9 @@ func (s *Store) AwaitingSince(before int64) ([]*Submission, error) {
 	return s.querySubs(`WHERE status='awaiting_confirm' AND MAX(marked_paid_at, topup_marked_at)<=? ORDER BY marked_paid_at LIMIT 200`, before)
 }
 
-// ---- 锁定 / 冻结 / 统计 ----
+// ---- 冻结 / 统计 ----
 
+// WorkerLocked 接单方手头待确认到账的记录数（待办计数用；已无锁定语义）。
 func (s *Store) WorkerLocked(userID int64) int64 {
 	return s.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='awaiting_confirm'`, userID)
 }
@@ -389,7 +401,6 @@ func (s *Store) WorkerStats(userID int64) WorkerStats {
 	st.Today = s.ClaimsSince(userID, dayStartMs())
 	st.EarnedE8 = s.sum(`SELECT SUM(paid_amount_e8) FROM submissions WHERE worker_id=? AND status='paid'`, userID)
 	st.AwaitCount = s.WorkerLocked(userID)
-	st.Locked = st.AwaitCount > 0
 	return st
 }
 

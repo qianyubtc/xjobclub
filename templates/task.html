@@ -3,7 +3,7 @@
 <section class="card">
   <div class="row between"><h1 style="margin:0">{{.T.Title}}</h1><div class="big amt">{{if .T.CPM}}{{amt .T.CpmE8}} <small style="font-size:13px">U / 千浏览</small>{{else}}{{amt .T.RewardE8}} <small style="font-size:13px">U / {{.T.Unit}}</small>{{end}}</div></div>
   <div class="row small muted" style="margin:6px 0 10px"><span><code>{{.T.Code}}</code></span><span class="st {{if eq .T.Status "open"}}good{{else if eq .T.Status "paused"}}warn{{else if eq .T.Status "review"}}wait{{else if eq .T.Status "rejected"}}bad{{else}}muted{{end}}">{{if eq .T.CloseReason "cancelled"}}已撤回{{else}}{{taskStatus .T.Status}}{{end}}</span>{{if .Done}}<span class="st good">名额已全部完成</span>{{else if .Full}}<span class="st wait">名额已满</span>{{end}}<span>发布于 {{ftime .T.PublishedAt}}</span></div>
-  {{if .Review}}<div class="notice {{if eq .T.Status "rejected"}}bad{{else if .Review.Hold}}warn{{end}}">{{if eq .T.Status "rejected"}}未通过审核：{{.T.ReviewNote}}{{if .IsOwner}} 可以修改文案后重新提交审核。{{end}}{{else if .Review.Hold}}审核期满仍有反对票，等待管理员裁定（{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对）。{{else}}社区审核中：{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对，截止 {{ftime .Review.Deadline}}。通过后才会出现在大厅并开放接单。{{end}}</div>
+  {{if .Review}}<div class="notice {{if eq .T.Status "rejected"}}bad{{else if .Review.Hold}}warn{{end}}">{{if eq .T.Status "rejected"}}未通过审核：{{.T.ReviewNote}}{{if .IsOwner}} 可以修改文案后重新提交审核。{{end}}{{else if .Review.Hold}}审核期满仍有反对票，等待管理员裁定（{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对）。{{else}}社区审核中：{{.Review.Pass}} 通过 / {{.Review.Fail}} 反对，截止 {{ftime .Review.Deadline}}。通过后才会出现在大厅并开放接单。{{end}}{{if and .IsOwner (ne .T.Status "closed")}}<div class="btns" style="margin-top:8px">{{if .CanEdit}}<a class="btn sec sm" href="/new?edit={{.T.Code}}">编辑文案{{if eq .T.Status "review"}}（改后重新审核）{{end}}</a>{{end}}<form method="post" action="/t/{{.T.Code}}/cancel" data-confirm="撤回后不再接新单，审核也随之结束；已经接了的记录照常走流程。确定撤回？"><button class="btn ghost sm">撤回任务</button></form></div>{{end}}</div>
   {{if and .IsOwner .Review.Reasons}}<details class="fold" style="margin-bottom:10px"><summary>反对票理由（{{len .Review.Reasons}}）</summary><ul class="small">{{range .Review.Reasons}}<li>{{.Reason}} <span class="muted">· {{ago .CreatedAt}}</span></li>{{end}}</ul></details>{{end}}
   {{if and (not .IsOwner) (eq .T.Status "review")}}{{template "votebox" (dict "T" .T "R" .Review "Reasons" .VoteReasons "Next" .T.Path)}}{{end}}{{end}}
   <div class="facts">
@@ -30,6 +30,7 @@
 
 {{if .IsOwner}}
 <section class="card" id="manage">
+  {{if ne .MeID .T.OwnerID}}<div class="notice">你以管理员身份查看发布方的管理面板；付款、核对、提前付款只有发布方本人能操作。</div>{{end}}
   <div class="sec-h"><h2>任务管理</h2><span class="eyebrow">{{.T.DoneCount}} / {{.T.SlotsTotal}} 已完成</span></div>
   <div class="prog" aria-label="名额进度"><span class="p-done" style="width:{{pct .T.DoneCount .T.SlotsTotal}}%"></span><span class="p-pay" style="width:{{pct .PayDueN .T.SlotsTotal}}%"></span><span class="p-act" style="width:{{pct .ActiveN .T.SlotsTotal}}%"></span></div>
   <div class="legend"><span><i class="sw p-done"></i>已完成 {{.T.DoneCount}}</span><span><i class="sw p-pay"></i>待你付款 {{.PayDueN}}</span><span><i class="sw p-act"></i>进行中 {{.ActiveN}}</span><span><i class="sw p-free"></i>剩余名额 {{.T.Left}}</span></div>
@@ -37,7 +38,7 @@
     {{range .Pending}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if eq .Status "checking"}}<form method="post" action="{{.Path}}/check" class="row" style="gap:6px" data-confirm="确认对方已{{$.T.DoneVerb}}？确认后进入待付款。"><input type="hidden" name="action" value="ok"><button class="btn sm"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已{{$.T.DoneVerb}}</button></form><a class="btn sec sm" href="{{.Path}}#check">没看到</a>{{else}}{{if or (eq .Status "payable") (eq .Status "overdue")}}<a class="btn sm" href="{{.Path}}#pay">去付款 {{amt (payAmt . $.T)}} U</a>{{else}}<a class="btn ghost sm" href="{{.Path}}">查看</a>{{end}}{{end}}</div>{{end}}
   </div>{{end}}
   {{if .Active}}<div class="grp"><div class="grp-h">进行中 <span class="muted">{{len .Active}}</span></div>
-    {{range .Active}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if eq .Status "verified"}}<form method="post" action="{{.Path}}/paynow" data-confirm="现在付款意味着放弃留存保护（付款后对方删帖无法追责）。确定现在结算？"><button class="btn ghost sm">现在就付</button></form>{{end}}{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
+    {{range .Active}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st {{stClass .Status}}">{{subStatus .Status}}</span><span class="next">{{ownerNext .}}</span>{{if and (eq .Status "verified") (eq $.MeID $.T.OwnerID)}}<form method="post" action="{{.Path}}/paynow" data-confirm="现在付款意味着放弃留存保护（付款后对方删帖无法追责）。确定现在结算？"><button class="btn ghost sm">现在就付</button></form>{{end}}{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
   </div>{{end}}
   {{if .DoneList}}<div class="grp"><div class="grp-h">已完成 <span class="muted">{{len .DoneList}}</span></div>
     {{range .DoneList}}<div class="rowline"><span class="who">{{with index $.Workers .WorkerID}}<a href="{{.Path}}">@{{.Handle}}</a>{{end}}</span><span class="st good">已完成</span><span class="next">{{ownerNext .}}{{if .Late}} · 逾期付款{{end}}</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<a class="btn ghost sm" href="{{.Path}}">详情</a></div>{{end}}
@@ -48,9 +49,9 @@
   <div class="btns">
     {{if eq .T.Status "open"}}<form method="post" action="/t/{{.T.Code}}/pause"><button class="btn sec sm">暂停接单</button></form>{{end}}
     {{if eq .T.Status "paused"}}<form method="post" action="/t/{{.T.Code}}/resume"><button class="btn sec sm">恢复接单</button></form>{{end}}
-    {{if .CanEdit}}<a class="btn sec sm" href="/new?edit={{.T.Code}}">编辑文案</a>{{end}}
+    {{if and .CanEdit (ne .T.Status "review")}}<a class="btn sec sm" href="/new?edit={{.T.Code}}">编辑文案</a>{{end}}
     {{if ne .T.Status "closed"}}<form method="post" action="/t/{{.T.Code}}/extend" class="row"><input name="days" value="7" style="width:70px" inputmode="numeric"> <button class="btn sec sm">延长截止（天）</button></form>
-    <form method="post" action="/t/{{.T.Code}}/cancel" data-confirm="取消后未被领取的名额不再开放，已领取的照常进行。确定？"><button class="btn danger sm">取消剩余名额</button></form>{{end}}
+    {{if ne .T.Status "review"}}<form method="post" action="/t/{{.T.Code}}/cancel" data-confirm="撤回后不再接新单（未被领取的名额关闭），已经接了的记录照常走流程。确定撤回？"><button class="btn danger sm">撤回任务</button></form>{{end}}{{end}}
     {{if .IsAdmin}}<form method="post" action="/admin/task/{{.T.Code}}/takedown" data-confirm="下架：已验证记录免留存进待付款，未提交的作废。确定？"><button class="btn danger sm">管理员下架</button></form>{{end}}
   </div>
   {{if .T.PausedByFreeze}}<div class="notice warn">因你有逾期未付记录，任务被自动暂停；付清后自动恢复。</div>{{end}}

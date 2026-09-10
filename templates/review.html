@@ -6,8 +6,8 @@
   <p class="small muted">资格：注册满 {{dur .Cfg.ReviewVoterAgeH}}、X 账号注册满 {{.Cfg.ReviewVoterXDays}} 天、不在黑名单，不能审自己的任务，每天最多 {{.Cfg.ReviewVotesPerDay}} 次。审核不给钱；反对票的理由发布方看得到，但看不到是谁投的。</p>
 </section>
 {{if .Mine}}<section class="card"><div class="sec-h"><h2>你发布的 · 审核中</h2><span class="eyebrow">{{len .Mine}} 个</span></div>
-  {{range .Mine}}{{$r := index $.Infos .ID}}<div class="note"><div style="min-width:0"><a href="{{.Path}}"><b>{{.Title}}</b></a> <code>{{.Code}}</code><div class="small muted" style="margin-top:4px">{{if $r.Hold}}投票有分歧，等管理员裁定{{else}}当前 {{$r.Pass}} 通过 / {{$r.Fail}} 反对 · 满 {{$r.MinVotes}} 票且 {{$r.EarlyPass}}% 以上通过即上线，最晚 {{ftime $r.Deadline}} 出结果{{end}}</div></div></div>{{end}}
-  <div class="hint">自己的任务不能投票。通过后自动上线并通知你；被驳回可以改文案后重新提交。</div>
+  {{range .Mine}}{{$r := index $.Infos .ID}}<div class="note"><div style="min-width:0"><a href="{{.Path}}"><b>{{.Title}}</b></a> <code>{{.Code}}</code><div class="small muted" style="margin-top:4px">{{if $r.Hold}}投票有分歧，等管理员裁定{{else}}当前 {{$r.Pass}} 通过 / {{$r.Fail}} 反对 · 满 {{$r.MinVotes}} 票且 {{$r.EarlyPass}}% 以上通过即上线，最晚 {{ftime $r.Deadline}} 出结果{{end}} · <a href="/new?edit={{.Code}}">编辑</a> · <a href="{{.Path}}#manage">撤回</a></div></div></div>{{end}}
+  <div class="hint">自己的任务不能投票。通过后自动上线并通知你；审核中随时可以在任务页编辑文案（改后重新审核）或撤回。</div>
 </section>{{end}}
 {{range .Tasks}}{{$o := index $.Owners .OwnerID}}{{$s := index $.Stats .OwnerID}}{{$r := index $.Infos .ID}}
 <section class="card">

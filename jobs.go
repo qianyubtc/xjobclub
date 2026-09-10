@@ -44,6 +44,7 @@ func (a *App) runJobs() {
 	a.runRechecks(now)
 	a.overduePayables(now)
 	a.autoApproveCheckings(now)
+	a.autoConfirmAwaiting(now)
 	a.closeTasks()
 	a.reviewTick(now)
 	a.syncPending()
@@ -193,7 +194,11 @@ func (a *App) remind(now, since int64) {
 		subs, _ := a.st.AwaitingSince(now - h*hourMs)
 		for _, x := range subs {
 			if x.MarkedPaidAt > since-h*hourMs { // 阈值时刻落在 (since, now] 内的只提醒一次
-				a.notify(x.WorkerID, "pay", fmt.Sprintf("待确认到账已 %d 小时", h), "记录 "+x.Code+"：请核对后点「已收到」或发起申诉，否则不能接新任务。", x.Path())
+				until := ""
+				if a.cfg.AutoConfirmH > h && !(x.TopupRequested > 0 && x.TopupMarkedAt == 0) {
+					until = fmt.Sprintf("，%s 后不处理会视为已收到、自动完成", dur(a.cfg.AutoConfirmH-h))
+				}
+				a.notify(x.WorkerID, "pay", fmt.Sprintf("待确认到账已 %d 小时", h), "记录 "+x.Code+"：请核对后点「已收到」或发起申诉"+until+"。", x.Path())
 			}
 		}
 	}

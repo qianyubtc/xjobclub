@@ -41,9 +41,6 @@ func (a *App) canPublish(u *User, st PubStats) string {
 	if st.Frozen {
 		return "你有逾期未付的记录，付清后才能发布新任务"
 	}
-	if a.workerLockedNow(u.ID) {
-		return "你有超过 24 小时未处理的待确认到账记录，先去确认或申诉"
-	}
 	p, _ := a.st.GetPayProfile(u.ID)
 	if p == nil {
 		return "请先在「收款设置」里绑定币安 UID"
@@ -68,9 +65,6 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats, refresh bool) string {
 	}
 	if u.SuspendedUntil > ms() {
 		return "你因留存不达标被暂停接单至 " + fmtTime(u.SuspendedUntil)
-	}
-	if a.workerLockedNow(u.ID) {
-		return "你有超过 24 小时未处理的待确认到账记录，先去确认或申诉"
 	}
 	if p, _ := a.st.GetPayProfile(u.ID); p == nil {
 		return "请先在「收款设置」里绑定币安 UID，否则没法收钱"
@@ -146,11 +140,6 @@ func (a *App) refreshFollowers(u *User, force bool) {
 	if a.st.SetFollowers(u.ID, n) == nil {
 		u.Followers, u.FollowersAt = n, ms()
 	}
-}
-
-// workerLockedNow 待确认到账超过 24 小时未处理即锁定。
-func (a *App) workerLockedNow(userID int64) bool {
-	return a.st.count(`SELECT COUNT(*) FROM submissions WHERE worker_id=? AND status='awaiting_confirm' AND marked_paid_at>0 AND MAX(marked_paid_at, topup_marked_at)<? AND topup_requested_at=0`, userID, ms()-dayMs) > 0
 }
 
 // ---- 大厅 ----
@@ -667,7 +656,7 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 					p.DeadN++
 				}
 			}
-			p.CanEdit = a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=?`, t.ID) == 0 && t.Status != "closed"
+			p.CanEdit = p.Me.ID == t.OwnerID && a.st.count(`SELECT COUNT(*) FROM submissions WHERE task_id=?`, t.ID) == 0 && t.Status != "closed"
 		}
 	} else {
 		p.Block = "登录后接单"
@@ -775,7 +764,7 @@ func (a *App) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		a.flash(w, err.Error())
 	} else {
 		a.st.Audit(u.ID, "task."+action, "task", t.ID, nil, a.ip(r))
-		a.flash(w, "已"+map[string]string{"pause": "暂停接单", "resume": "恢复接单", "cancel": "取消剩余名额并关闭任务", "extend": "延长截止"}[action])
+		a.flash(w, "已"+map[string]string{"pause": "暂停接单", "resume": "恢复接单", "cancel": "撤回：不再接新单，已接的记录照常进行", "extend": "延长截止"}[action])
 	}
 	http.Redirect(w, r, t.Path(), http.StatusFound)
 }

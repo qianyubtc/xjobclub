@@ -182,7 +182,7 @@ func (a *App) funcs() template.FuncMap {
 			return s
 		},
 		"methodText": func(s string) string {
-			if v, ok := map[string]string{"gateway": "网关自动核销", "manual": "接单方确认", "admin": "管理员核定"}[s]; ok {
+			if v, ok := map[string]string{"gateway": "网关自动核销", "auto": "超时自动确认", "manual": "接单方确认", "admin": "管理员核定"}[s]; ok {
 				return v
 			}
 			return s

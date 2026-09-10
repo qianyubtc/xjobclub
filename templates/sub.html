@@ -14,6 +14,7 @@
     {{if eq .X.Status "verified"}}<span class="k">留存复检</span><span class="v">{{ftime .X.RecheckDueAt}}（剩 {{left .X.RecheckDueAt}}）{{if .X.RecheckFlag}} · {{.X.RecheckFlag}}{{end}}</span>{{end}}
     {{if or (eq .X.Status "payable") (eq .X.Status "overdue")}}<span class="k">付款截止</span><span class="v">{{ftime .X.PayDeadlineAt}}（{{left .X.PayDeadlineAt}}）{{if .X.RecheckFlag}} · <span class="st {{if has .X.RecheckFlag "提前"}}good{{else}}warn{{end}}">{{.X.RecheckFlag}}</span>{{end}}</span>{{end}}
     {{if .X.MarkedPaidAt}}<span class="k">发布方标记</span><span class="v">{{ftime .X.MarkedPaidAt}}{{if .X.MarkedOrderID}} · 币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}{{if .X.MarkedNote}} · {{.X.MarkedNote}}{{end}}</span>{{end}}
+    {{if eq .X.ConfirmMethod "auto"}}<span class="k">完成方式</span><span class="v">{{ftime .X.ConfirmedAt}} 自动确认（接单方 {{dur .Cfg.AutoConfirmH}} 内未处理）</span>{{end}}
     {{if .X.VoidReason}}<span class="k">作废原因</span><span class="v">{{.X.VoidReason}}</span>{{end}}
   </div>
   {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
@@ -79,8 +80,13 @@
     {{else}}<div class="btns"><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="accept"><button class="btn sec">接受实付，完成</button></form><form method="post" action="/s/{{.X.Code}}/underpaid"><input type="hidden" name="action" value="topup"><button class="btn">要求补差 {{amt .TopupE8}} U</button></form></div>{{end}}
   {{else}}<p>发布方于 {{ftime .X.MarkedPaidAt}} 标记已付{{if .X.MarkedOrderID}}，币安订单 <code>{{.X.MarkedOrderID}}</code>。请打开币安 App → 支付 → 交易记录核对。{{else if .X.MarkedNote}}：{{.X.MarkedNote}}。这是你自定义的收款方式，平台不核验，请自行到对应钱包 / 账户核对到账后再确认。{{else}}。请打开币安 App → 支付 → 交易记录核对。{{end}}</p>
     <form method="post" action="/s/{{.X.Code}}/confirm" data-confirm="确认已收到 {{amt .Due}} U？确认后记录完成，不可撤销。"><button class="btn"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>已收到，完成</button></form>
-    {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉即解除你的锁定。如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
-    <div class="hint" style="margin-top:8px">标记后 24 小时内未处理，你将暂时不能接新任务。</div>{{end}}
+    {{range .DisputeOK}}{{if eq . "B"}}<details class="fold" style="margin-top:12px"><summary>没收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">如查实钱已到账却否认，会进入黑名单。</div></form></details>{{end}}{{end}}
+    <div class="hint" style="margin-top:8px">{{if .AutoAt}}<b>{{ftime .AutoAt}}</b> 前不处理会视为已收到、自动完成（之后 {{.Cfg.AutoDisputeDays}} 天内仍可申诉）。{{else if and .X.TopupRequested (not .X.TopupMarkedAt)}}对方补差后这里会出现确认按钮。{{end}}</div>{{end}}
+</section>
+{{else if and (eq .X.Status "paid") (eq .X.ConfirmMethod "auto")}}
+<section class="card">
+  <p>这条记录于 {{ftime .X.ConfirmedAt}} <b>自动完成</b>：发布方标记付款后你 {{dur .Cfg.AutoConfirmH}} 内没有处理，按已收到计。</p>
+  {{range .DisputeOK}}{{if eq . "B"}}<details class="fold"><summary>实际没有收到？发起申诉</summary><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="B"><label>说明情况（之后可上传流水截图）</label><textarea name="text" required minlength="5" placeholder="例：币安支付记录里没有这笔转账"></textarea><button class="btn danger sm" style="margin-top:8px">申诉：未收到</button><div class="hint">申诉成立发布方进黑名单、记录转为逾期未付；如查实钱已到账却否认，会进入黑名单。</div></form></details>{{else}}{{end}}{{end}}
 </section>
 {{end}}
 {{range .DisputeOK}}{{if eq . "G"}}<section class="card"><h2 style="margin-top:0">你确实{{$.T.DoneVerb}}了？</h2><p class="small">发布方两次核对都说没看到，记录已作废。如果你确认是用 @{{with $.Worker}}{{.Handle}}{{end}} 完成的，24 小时内可以发起核对争议，由管理员裁决；成立则记录恢复为待付款。</p><form method="post" action="/s/{{$.X.Code}}/dispute"><input type="hidden" name="type" value="G"><label>说明情况（提交后可上传截图）</label><textarea name="text" required minlength="5" placeholder="例：我在 9 月 10 日 18:50 用本账号点了赞，点赞列表截图见附件"></textarea><button class="btn" style="margin-top:8px">发起核对争议</button></form></section>{{end}}{{end}}
@@ -132,7 +138,7 @@
     {{template "markform" .}}
   {{end}}
 </section>
-{{else if eq .X.Status "awaiting_confirm"}}<section class="card">{{if .X.TopupMarkedAt}}<p>补差已登记{{if .X.TopupOrderID}}（币安订单 <code>{{.X.TopupOrderID}}</code>）{{end}}，等待接单方确认后按全额完成。</p>{{else}}<p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。对方 24 小时内未处理会被锁定接单。</p>{{end}}</section>
+{{else if eq .X.Status "awaiting_confirm"}}<section class="card">{{if .X.TopupMarkedAt}}<p>补差已登记{{if .X.TopupOrderID}}（币安订单 <code>{{.X.TopupOrderID}}</code>）{{end}}，等待接单方确认后按全额完成。</p>{{else}}<p>已登记付款，等待接单方确认{{if .X.UnderpaidE8}}（接单方可能要求补差）{{end}}。{{if .AutoAt}}对方 {{ftime .AutoAt}} 前未处理会视为已收到、自动完成。{{end}}</p>{{end}}</section>
 {{else if eq .X.Status "verified"}}<section class="card" id="paynow">
   <h2 style="margin-top:0">下一步</h2>
   <p>推文已验证，正在留存期：<b>{{ftime .X.RecheckDueAt}}</b> 复检通过后自动进入待付款并通知你，付款时限 {{dur .T.PayWindowH}}。</p>

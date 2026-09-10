@@ -24,7 +24,6 @@ type mePage struct {
 	BL         *BlacklistEntry
 	Disputes   []*Dispute
 	Invites    []*JuryCase
-	Locked     bool
 	CertNeeded bool
 	Tab        string
 	Cfg        *Config
@@ -93,7 +92,6 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	p.BL, _ = a.st.ActiveBlacklist(u.ID)
 	p.Disputes, _ = a.st.DisputesForUser(u.ID, 20)
 	p.Invites, _ = a.st.InvitedCasesFor(u.ID)
-	p.Locked = a.workerLockedNow(u.ID)
 	p.CertNeeded = a.cfg.CertFeeEnabled && u.CertPaidAt == 0
 	a.render(w, http.StatusOK, "me", p)
 }

@@ -270,7 +270,7 @@ type Submission struct {
 	MarkedOrderID  string
 	MarkedNote     string
 	UnderpaidE8    int64 // 网关少付：实付金额（0 = 无少付）
-	TopupRequested int64 // 接单方要求补差的时间（期间不锁定接单方）
+	TopupRequested int64 // 接单方要求补差的时间（期间不自动完成）
 	TopupMarkedAt  int64 // 发布方登记补差订单号的时间
 	TopupOrderID   string
 	ConfirmedAt    int64
@@ -477,7 +477,6 @@ type WorkerStats struct {
 	Active      int64 // 进行中的接单
 	Today       int64
 	EarnedE8    int64
-	Locked      bool
 	Suspended   bool
 	AwaitCount  int64
 }
@@ -488,7 +487,7 @@ func joinLower(xs []string) string { return strings.ToLower(strings.Join(xs, "\n
 var auditTextMap = map[string]string{
 	"sub.claim": "", "sub.submit": "提交链接，开始验证", "sub.verified": "验证通过", "sub.force_verified": "管理员判定验证通过", "sub.payable": "留存复检通过，进入待付款",
 	"sub.expired": "超时未提交，名额释放", "sub.void": "作废", "sub.overdue": "付款逾期", "sub.mark_paid": "发布方登记已付", "sub.paid": "付款完成", "sub.repaid": "补付到账",
-	"sub.underpaid": "少付处理", "sub.topup_requested": "接单方要求补差", "sub.defaulted": "记为违约", "sub.checking": "提交核对", "sub.paynow": "发布方选择提前付款，不等留存到期", "sub.check_ok": "发布方确认已完成",
+	"sub.underpaid": "少付处理", "sub.topup_requested": "接单方要求补差", "sub.defaulted": "记为违约", "sub.checking": "提交核对", "sub.paynow": "发布方选择提前付款，不等留存到期", "sub.auto_confirm": "待确认到账超时未处理，视为已收到自动完成", "sub.check_ok": "发布方确认已完成",
 	"sub.check_no": "发布方未见到，退回重做", "sub.check_void": "两次核对未见到，作废", "sub.check_auto": "发布方超时未核对，视为通过", "sub.repost_detected": "自动检测到转发",
 	"dispute.open": "发起申诉", "dispute.resolve": "申诉裁决", "dispute.auto_close": "申诉自动结案", "task.takedown": "任务被下架",
 	"pay.payer_mismatch": "付款账户与认证不一致", "pay.unexpected": "收到未预期的付款",

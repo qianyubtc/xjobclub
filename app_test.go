@@ -633,14 +633,12 @@ func TestManualOverdueBlacklist(t *testing.T) {
 	if x.Status != SAwait {
 		t.Fatalf("await expected: %s", x.Status)
 	}
-	// 24 小时内不锁定
-	if e.a.workerLockedNow(cu.ID) {
-		t.Fatal("should not lock within 24h")
+	// 24 小时内不会自动完成
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x.ID); nx.Status != SAwait {
+		t.Fatalf("must stay awaiting within 24h: %s", nx.Status)
 	}
-	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-25*hourMs, x.ID)
-	if !e.a.workerLockedNow(cu.ID) {
-		t.Fatal("should lock after 24h")
-	}
+	_ = cu
 	// 确认收到 → 完成，解锁
 	if resp, _ := carol.post("/s/"+x.Code+"/confirm", nil); resp.StatusCode != 302 {
 		t.Fatal("confirm failed")
@@ -694,9 +692,7 @@ func TestManualOverdueBlacklist(t *testing.T) {
 	if d == nil || d.Type != "B" || d.Status != "evidence" {
 		t.Fatalf("dispute %+v", d)
 	}
-	if e.a.workerLockedNow(fu.ID) {
-		t.Fatal("dispute should lift the lock")
-	}
+	_ = fu
 	// 管理员交小法庭（池子不够也允许手动开庭）→ 页面渲染 → 接管
 	if resp, _ := admin.post("/admin/dispute/"+d.Code+"/tojury", nil); resp.StatusCode != 302 {
 		t.Fatal("tojury failed")
@@ -989,9 +985,11 @@ func TestTopupRequestDoesNotLock(t *testing.T) {
 	e.gw.pay(t, p.MerchantOrderID, "payer-A93", "1.2")
 	ivy.post("/s/"+x.Code+"/underpaid", url.Values{"action": {"topup"}})
 	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-30*hourMs, x.ID)
-	if e.a.workerLockedNow(iu.ID) {
-		t.Fatal("worker waiting for top-up must not be locked")
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x.ID); nx.Status != SAwait {
+		t.Fatalf("waiting for top-up must not auto-complete: %s", nx.Status)
 	}
+	_ = iu
 	// 发布方手动登记补差订单号 → 接单方确认按全额完成
 	if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {"452021922068889301"}}); resp.StatusCode != 302 {
 		t.Fatal("manual top-up mark failed")
@@ -1996,6 +1994,142 @@ func TestEarlyPay(t *testing.T) {
 		t.Fatalf("cpm early settle: %s views=%d amount=%d", x4.Status, x4.SettleViews, x4.AmountE8)
 	}
 	for _, pth := range []string{x.Path(), x3.Path(), x4.Path(), task.Path(), "/review", "/me", "/"} {
+		if _, body := alice.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+			t.Fatalf("raw value leaked on %s", pth)
+		}
+	}
+}
+
+// ---- 待确认到账 24 小时不处理自动完成；之后 7 天内仍可申诉 ----
+
+func TestAutoConfirm(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob, carl, dan := e.browser("alice"), e.browser("bob"), e.browser("carl"), e.browser("dan")
+	au := alice.register("alice", "7501")
+	bu := bob.register("bob", "7502")
+	carl.register("carl", "7503")
+	dan.register("dan", "7504")
+	alice.setUID("42001")
+	alice.certify("payer-AC")
+	bob.setUID("42002")
+	carl.setUID("42003")
+	dan.setUID("42004")
+	task := alice.publish(taskForm(url.Values{"slots": {"6"}}))
+	mark := func(b *browser, xid string, tid string, oid string) *Submission {
+		x := b.claim(task)
+		e.synd.add(mockTweet{ID: tid, Text: task.Contents[0], UserID: xid, Handle: b.who})
+		x = b.submitTweet(x, tid)
+		if x.Status != SPayable {
+			t.Fatalf("payable expected: %s", x.Status)
+		}
+		if resp, _ := alice.post("/s/"+x.Code+"/pay/mark", url.Values{"binance_order_id": {oid}}); resp.StatusCode != 302 {
+			t.Fatal("mark failed")
+		}
+		x, _ = e.a.st.GetSubByID(x.ID)
+		if x.Status != SAwait {
+			t.Fatalf("await expected: %s", x.Status)
+		}
+		return x
+	}
+	// 1) 24 小时不处理 → 自动完成（不计信用），双方收到通知；接单方页面出现事后申诉入口
+	x := mark(bob, "7502", "7601", "452021922068888811")
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x.ID); nx.Status != SAwait {
+		t.Fatal("must not auto-complete before 24h")
+	}
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-25*hourMs, x.ID)
+	e.a.runJobs()
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SPaid || x.ConfirmMethod != "auto" || x.ConfirmedAt == 0 {
+		t.Fatalf("auto paid expected: %s %s", x.Status, x.ConfirmMethod)
+	}
+	if st := e.a.st.PubStats(au.ID); st.PaidGateway != 0 {
+		t.Fatal("auto confirmation must not build gateway credit")
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%自动完成%'`, bu.ID); n != 1 {
+		t.Fatalf("worker should be told, got %d", n)
+	}
+	if _, body := bob.get(x.Path()); !strings.Contains(body, "自动完成") || !strings.Contains(body, "实际没有收到") {
+		t.Fatal("worker should see the post-completion dispute entry")
+	}
+	if _, body := alice.get(x.Path()); !strings.Contains(body, "自动确认") {
+		t.Fatal("owner should see how it completed")
+	}
+	// 3) 申诉不成立（款已到账 / UID 填错）：记录完成
+	x2 := mark(carl, "7503", "7602", "452021922068888812")
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-25*hourMs, x2.ID)
+	e.a.runJobs()
+	carl.post("/s/"+x2.Code+"/dispute", url.Values{"type": {"B"}, "text": {"我没有收到这笔转账"}})
+	d2, _ := e.a.st.OpenDisputeForSub(x2.ID)
+	if d2 == nil {
+		t.Fatal("dispute expected")
+	}
+	if err := e.a.applyResolution(d2, "b_wrong_uid", "UID 填错", 0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if x2, _ = e.a.st.GetSubByID(x2.ID); x2.Status != SPaid {
+		t.Fatalf("paid expected: %s", x2.Status)
+	}
+	// 4) 申诉窗口过期后不能再申诉
+	x3 := mark(dan, "7504", "7603", "452021922068888813")
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=? WHERE id=?`, ms()-25*hourMs, x3.ID)
+	e.a.runJobs()
+	e.a.st.db.Exec(`UPDATE submissions SET confirmed_at=? WHERE id=?`, ms()-8*dayMs, x3.ID)
+	if _, body := dan.get(x3.Path()); strings.Contains(body, "实际没有收到") {
+		t.Fatal("dispute window should be closed after 7 days")
+	}
+	if resp, _ := dan.post("/s/"+x3.Code+"/dispute", url.Values{"type": {"B"}, "text": {"太晚了但我还是想申诉"}}); resp.StatusCode == 302 {
+		if dd, _ := e.a.st.OpenDisputeForSub(x3.ID); dd != nil {
+			t.Fatal("late dispute must be refused")
+		}
+	}
+	// 4b) 已举报过的记录、申诉中的记录不自动完成（申诉会冻结发布方任务，放在接单用例之后）
+	eve := e.browser("eve")
+	eve.register("eve", "7505")
+	eve.setUID("42005")
+	x5 := mark(eve, "7505", "7605", "452021922068888815")
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=?, reported_at=1 WHERE id=?`, ms()-25*hourMs, x5.ID)
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x5.ID); nx.Status != SAwait {
+		t.Fatalf("reported record must wait for explicit confirmation: %s", nx.Status)
+	}
+	e.a.st.db.Exec(`UPDATE submissions SET reported_at=0 WHERE id=?`, x5.ID)
+	if resp, _ := eve.post("/s/"+x5.Code+"/dispute", url.Values{"type": {"B"}, "text": {"没有收到这笔钱，流水里没有"}}); resp.StatusCode != 302 {
+		t.Fatal("dispute B failed")
+	}
+	if ok, _ := e.a.st.SetAutoPaid(x5.ID, 100000000); ok {
+		t.Fatal("auto completion must never override an open dispute")
+	}
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x5.ID); nx.Status != SDisputed {
+		t.Fatalf("disputed record must stay disputed: %s", nx.Status)
+	}
+	if d5, _ := e.a.st.OpenDisputeForSub(x5.ID); d5 == nil {
+		t.Fatal("dispute must stay open")
+	}
+	// 5) 事后 B 类申诉成立：撤销完成、记录转逾期、发布方上黑名单（放最后：会冻结并关闭发布方的任务）
+	if resp, _ := bob.post("/s/"+x.Code+"/dispute", url.Values{"type": {"B"}, "text": {"币安支付记录里没有这笔转账"}}); resp.StatusCode != 302 {
+		t.Fatal("post-auto dispute B failed")
+	}
+	d, _ := e.a.st.OpenDisputeForSub(x.ID)
+	if d == nil || d.Type != "B" {
+		t.Fatalf("dispute %+v", d)
+	}
+	if nx, _ := e.a.st.GetSubByID(x.ID); nx.Status != SDisputed || nx.PrevStatus != SPaid {
+		t.Fatalf("disputed from paid expected: %s/%s", nx.Status, nx.PrevStatus)
+	}
+	if err := e.a.applyResolution(d, "b_fake", "查无此转账", 0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	// 撤销完成 → 逾期；黑名单流程随即把发布方的逾期记录记为违约
+	if (x.Status != SOverdue && x.Status != SDefault) || x.ConfirmMethod != "" || x.ConfirmedAt != 0 || x.PaidAmountE8 != 0 {
+		t.Fatalf("b_fake must undo the completion: %s %q %d", x.Status, x.ConfirmMethod, x.PaidAmountE8)
+	}
+	if bl, _ := e.a.st.ActiveBlacklist(au.ID); bl == nil {
+		t.Fatal("publisher should be blacklisted")
+	}
+	for _, pth := range []string{x.Path(), x2.Path(), x3.Path(), task.Path(), "/me", "/rules"} {
 		if _, body := alice.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
 			t.Fatalf("raw value leaked on %s", pth)
 		}

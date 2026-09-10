@@ -87,8 +87,8 @@ func (a *App) openDisputeOn(x *Submission, t *Task, typ string, opener *User, te
 		a.st.SetReported(x.ID)
 		a.st.db.Exec(`UPDATE submissions SET grace_until=? WHERE id=?`, d.EvidenceUntil, x.ID)
 	case "B":
-		a.st.SetDisputed(x.ID, []string{SAwait})
-		a.st.FreezeOwnerTasks(t.OwnerID) // 钱在争议中：发布方在线任务暂停
+		a.st.SetDisputed(x.ID, []string{SAwait, SPaid}) // paid 只可能是自动完成后的申诉（disputeOptions 把关）
+		a.st.FreezeOwnerTasks(t.OwnerID)                // 钱在争议中：发布方在线任务暂停
 	case "C":
 		a.st.db.Exec(`UPDATE submissions SET claim_expires_at=MAX(claim_expires_at, ?), updated_at=? WHERE id=?`, ms()+a.cfg.EvidenceWindowH*hourMs+dayMs, ms(), x.ID)
 	case "D":
@@ -507,8 +507,11 @@ func (a *App) applyResolution(d *Dispute, resolution, note string, by int64, ext
 				return errors.New("请填写正确的实付金额（小于应付）")
 			}
 			a.st.RestoreFromDispute(x.ID, SAwait)
-			a.st.db.Exec(`UPDATE submissions SET underpaid_e8=?, marked_paid_at=?, topup_requested_at=?, topup_marked_at=0, updated_at=? WHERE id=?`, amt, ms(), ms(), ms(), x.ID)
+			a.st.db.Exec(`UPDATE submissions SET underpaid_e8=?, marked_paid_at=?, topup_requested_at=?, topup_marked_at=0, confirmed_at=0, confirm_method='', paid_amount_e8=0, updated_at=? WHERE id=?`, amt, ms(), ms(), ms(), x.ID)
 			a.notify(x.WorkerID, "pay", "裁决：款项少付", fmt.Sprintf("实付 %s U，你可以接受或要求补差。", fmtE8(amt)), x.Path())
+			if a.st.PublisherFrozen(t.OwnerID) == 0 {
+				a.st.UnfreezeOwnerTasks(t.OwnerID) // 申诉开庭时冻结的任务恢复
+			}
 		case "b_wrong_uid":
 			if ok, _ := a.st.SetPaid(x.ID, "admin", payAmount(x, t)); ok {
 				a.settlePaid(x, t, by, "admin", false)
@@ -650,7 +653,7 @@ func (a *App) blacklistUser(u *User, role, reason string, disputeID int64, ip st
 			}
 			if ok, _ := a.st.SetDefaulted(x.ID); ok {
 				if t, _ := a.st.GetTaskByID(x.TaskID); t != nil {
-					owed += payAmount(x, t)
+					owed += max(payAmount(x, t)-x.UnderpaidE8, 0) // 网关已确认的部分实付不算欠
 				}
 				a.st.Audit(0, "sub.defaulted", "submission", x.ID, nil, "")
 				a.notify(x.WorkerID, "dispute", "发布方已上黑名单，记录转为违约", "欠款会公示在黑名单榜；对方补付后会通知你。", x.Path())

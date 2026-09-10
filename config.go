@@ -66,6 +66,8 @@ type Config struct {
 
 	// 履约与纠纷时限
 	GraceReportH    int64 // 举报后宽限
+	AutoConfirmH    int64 // 待确认到账多少小时不处理视为已收到（自动完成）
+	AutoDisputeDays int64 // 自动完成后多少天内接单方仍可发起 B 类申诉
 	EvidenceWindowH int64
 	RecheckUnknownH int64 // 复检无结论多久后判通过
 	VoidStrikes     int64 // 30 天内留存不达标几次暂停接单
@@ -242,11 +244,13 @@ func loadConfig(path string) (*Config, error) {
 	c.MaxVariants = getInt("MAX_VARIANTS", 5)
 	c.VerifyAttempts = getInt("VERIFY_ATTEMPTS", 3)
 	c.GraceReportH = getInt("GRACE_REPORT_H", 24)
+	c.AutoConfirmH = getInt("AUTO_CONFIRM_H", 24)
+	c.AutoDisputeDays = getInt("AUTO_DISPUTE_DAYS", 7)
 	c.EvidenceWindowH = getInt("EVIDENCE_WINDOW_H", 72)
 	c.RecheckUnknownH = getInt("RECHECK_UNKNOWN_H", 12)
 	c.VoidStrikes = getInt("VOID_STRIKES", 3)
 	c.VoidSuspendDays = getInt("VOID_SUSPEND_DAYS", 7)
-	c.ConfirmRemindH = getList("CONFIRM_REMIND_H", "24,72")
+	c.ConfirmRemindH = getList("CONFIRM_REMIND_H", "12")
 	c.ExposureNewbieE8 = getU("EXPOSURE_NEWBIE", "20")
 	c.ExposureRegularE8 = getU("EXPOSURE_REGULAR", "200")
 	c.ExposureSeniorE8 = getU("EXPOSURE_SENIOR", "2000")
