@@ -520,7 +520,7 @@ func (a *App) handlePayBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.st.Audit(u.ID, "pay.bind_key", "user", u.ID, map[string]any{"account": acct.AccountID}, a.ip(r))
-	a.flash(w, "已绑定，以后别人付你的款会自动确认到账")
+	a.flash(w, "绑定成功：网关已用这把 Key 成功读取到你账户的 Pay 流水。请再核对一遍 UID 与这把 Key 属于同一个币安账户，否则别人付的款会进到别处且无法自动确认。")
 	http.Redirect(w, r, "/me/pay", http.StatusFound)
 }
 
@@ -537,6 +537,33 @@ func (a *App) handlePayUnbind(w http.ResponseWriter, r *http.Request) {
 	a.downgradePayee(u.ID, p, "用户解绑")
 	a.st.Audit(u.ID, "pay.unbind_key", "user", u.ID, nil, a.ip(r))
 	a.flash(w, "已解绑，收款方式改为手动确认")
+	http.Redirect(w, r, "/me/pay", http.StatusFound)
+}
+
+// handlePayVerify 用户手动触发一次 Key 校验：网关立即用该 Key 试拉一条流水。
+func (a *App) handlePayVerify(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	if a.limited(w, r, "payverify", 6, 10*time.Minute) {
+		return
+	}
+	p, _ := a.st.GetPayProfile(u.ID)
+	if p == nil || !p.Gateway() || a.gwc == nil {
+		a.flash(w, "还没有绑定只读 Key")
+		http.Redirect(w, r, "/me/pay", http.StatusFound)
+		return
+	}
+	acct, err := a.gwc.VerifyAccount(p.BPGAccountID)
+	if err != nil {
+		a.st.SetPayHealth(u.ID, p.BPGLastOK, gatewayErr(err))
+		a.flash(w, "验证失败："+gatewayErr(err)+"。请检查 Key 是否被删除、权限是否仍含「允许读取」、IP 白名单是否包含网关服务器。")
+	} else {
+		a.st.SetPayHealth(u.ID, ms(), "")
+		a.flash(w, "验证通过：网关刚刚成功读取了这把 Key（"+acct.APIKeyMasked+"）的 Pay 流水。")
+	}
+	a.st.Audit(u.ID, "pay.verify_key", "user", u.ID, map[string]any{"ok": err == nil}, a.ip(r))
 	http.Redirect(w, r, "/me/pay", http.StatusFound)
 }
 

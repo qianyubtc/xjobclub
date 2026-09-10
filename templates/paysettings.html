@@ -17,16 +17,19 @@
   {{if .Gateway}}
   <h2>方式二：自动到账（进阶，可选）</h2>
   <p class="small muted">绑定一把<b>只读</b>币安 API Key，网关轮询你的 Pay 流水自动核销，不用天天点确认，也能拿到"网关核销"信用。Key 与 Secret 直接交给网关加密保存，不进本站数据库。</p>
-  {{if and .P .P.Gateway}}<form method="post" action="/me/pay/unbind" data-confirm="解绑后在途的自动订单会关闭并通知付款方改手动。确定？"><button class="btn ghost">解绑 Key，改回手动确认</button></form>
+  {{if and .P .P.Gateway}}<div class="notice ok">已绑定 Key {{.P.APIKeyMasked}}。绑定时网关已用它成功读取过你账户的 Pay 流水{{if .P.BPGLastOK}}，最近一次校验成功：{{ftime .P.BPGLastOK}}{{end}}{{if .P.BPGLastErr}}；<span style="color:var(--red)">最近异常：{{.P.BPGLastErr}}</span>{{end}}。系统每小时自动复查，连续失败会自动切回手动确认并通知你。</div>
+  <div class="notice warn">请确认收款 UID <code>{{.P.BinanceUID}}</code> 与这把 Key 属于<b>同一个</b>币安账户：付款方按 UID 转账，网关按 Key 所在账户的流水核销，两者不一致会导致钱进了别处却永远无法自动确认。</div>
+  <div class="btns"><form method="post" action="/me/pay/verify"><button class="btn sec">立即重新验证 Key</button></form>
+  <form method="post" action="/me/pay/unbind" data-confirm="解绑后在途的自动订单会关闭并通知付款方改手动。确定？"><button class="btn ghost">解绑 Key，改回手动确认</button></form></div>
   {{else}}<details class="fold"><summary>绑定只读 API Key</summary>
     <ol class="small"><li>币安 App / 网页 → 账户 → API 管理 → 创建 API</li><li>权限<b>只勾「允许读取」</b>，其它全部不勾</li><li>IP 白名单填网关服务器出口 IP（在规则页公布）</li></ol>
     <form method="post" action="/me/pay/bind" autocomplete="off">
       <label>API Key</label><input name="api_key" autocomplete="off" required>
       <label>API Secret</label><input name="api_secret" type="password" autocomplete="new-password" required>
-      <label>币安 UID</label><input name="uid" inputmode="numeric" value="{{if .P}}{{.P.BinanceUID}}{{end}}" required>
+      <label>币安 UID（必须是这把 Key 所属账户的 UID）</label><input name="uid" inputmode="numeric" value="{{if .P}}{{.P.BinanceUID}}{{end}}" required>
       <button class="btn sec" style="margin-top:12px">验证并绑定</button>
     </form>
-    <div class="hint">网关会先用这把 Key 试拉一次流水，失败会返回币安的原因（Key 无效 / IP 未白名单 / 地区限制）。个人账户跑收款属币安条款灰色地带，风险自担。</div>
+    <div class="hint">点「验证并绑定」时，网关会立刻用这把 Key 调用币安只读接口读取一条 Pay 流水：Key/Secret 错误、没有读取权限、IP 白名单不含网关服务器、地区受限，任一情况都会绑定失败并显示币安返回的原因；成功即表示这把 Key 当下可用。网关无法核验 UID 与 Key 是否同属一个账户，请自行确认。个人账户跑收款属币安条款灰色地带，风险自担。</div>
   </details>{{end}}
   {{end}}
 </section>

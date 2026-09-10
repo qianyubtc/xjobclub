@@ -254,6 +254,7 @@ func (a *App) routes() {
 	m.HandleFunc("POST /me/pay/uid", a.handlePayUID)
 	m.HandleFunc("POST /me/pay/bind", a.handlePayBind)
 	m.HandleFunc("POST /me/pay/unbind", a.handlePayUnbind)
+	m.HandleFunc("POST /me/pay/verify", a.handlePayVerify)
 	m.HandleFunc("POST /me/password", a.handlePassword)
 	m.HandleFunc("GET /me/cert", a.handleCertGet)
 	m.HandleFunc("POST /me/cert", a.handleCertPost)

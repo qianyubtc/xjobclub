@@ -1131,3 +1131,23 @@ func TestRepairCertPayments(t *testing.T) {
 		t.Fatal("repair must be idempotent")
 	}
 }
+
+func TestPayVerifyKey(t *testing.T) {
+	e := newEnv(t, "")
+	nia := e.browser("nia")
+	nu := nia.register("nia", "9961")
+	if resp, _ := nia.post("/me/pay/verify", nil); resp.StatusCode != 302 {
+		t.Fatal("verify without key should redirect with flash")
+	}
+	nia.bindKey("85001")
+	if resp, _ := nia.post("/me/pay/verify", nil); resp.StatusCode != 302 {
+		t.Fatal("verify failed")
+	}
+	p, _ := e.a.st.GetPayProfile(nu.ID)
+	if p.BPGLastErr != "" || p.BPGLastOK == 0 {
+		t.Fatalf("verify should record health: %+v", p)
+	}
+	if _, body := nia.get("/me/pay"); !strings.Contains(body, "立即重新验证 Key") || !strings.Contains(body, "同一个") {
+		t.Fatal("pay settings should show verify button and UID warning")
+	}
+}
