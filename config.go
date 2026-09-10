@@ -52,6 +52,17 @@ type Config struct {
 	DeadlineMax      int64
 	MaxVariants      int64
 	VerifyAttempts   int64
+	// 发布审核：新任务先公示投票，通过才上线
+	ReviewEnabled     bool
+	ReviewWindowH     int64 // 审核期（小时）
+	ReviewMinVotes    int64 // 提前判定所需最少票数
+	ReviewEarlyPass   int64 // 提前通过的通过率（百分比）
+	ReviewEarlyFail   int64 // 提前否决的反对率（百分比）
+	ReviewHoldFails   int64 // 到期时反对票达到此数转管理员
+	ReviewTrustedPaid int64 // 网关核销付款达到此数且无逾期的发布方免审（0 = 不免）
+	ReviewVoterAgeH   int64 // 投票人注册时长
+	ReviewVoterXDays  int64 // 投票人 X 账号最少年龄
+	ReviewVotesPerDay int64
 
 	// 履约与纠纷时限
 	GraceReportH    int64 // 举报后宽限
@@ -253,6 +264,16 @@ func loadConfig(path string) (*Config, error) {
 	c.CertFeeE8 = getU("CERT_FEE_AMOUNT", "0.1")
 	c.JuryEnabled = getBool("JURY_ENABLED", true)
 	c.JuryMinPool = getInt("JURY_MIN_POOL", 50)
+	c.ReviewEnabled = getBool("REVIEW_ENABLED", true)
+	c.ReviewWindowH = getInt("REVIEW_WINDOW_H", 6)
+	c.ReviewMinVotes = getInt("REVIEW_MIN_VOTES", 5)
+	c.ReviewEarlyPass = getInt("REVIEW_EARLY_PASS", 80)
+	c.ReviewEarlyFail = getInt("REVIEW_EARLY_FAIL", 60)
+	c.ReviewHoldFails = getInt("REVIEW_HOLD_FAILS", 2)
+	c.ReviewTrustedPaid = getInt("REVIEW_TRUSTED_PAID", 3)
+	c.ReviewVoterAgeH = getInt("REVIEW_VOTER_AGE_H", 24)
+	c.ReviewVoterXDays = getInt("REVIEW_VOTER_X_DAYS", 30)
+	c.ReviewVotesPerDay = getInt("REVIEW_VOTES_PER_DAY", 30)
 	c.JuryPanel = getInt("JURY_PANEL", 7)
 	c.JuryInvite = getInt("JURY_INVITE", 21)
 	c.JuryWindowH = getInt("JURY_WINDOW_H", 48)

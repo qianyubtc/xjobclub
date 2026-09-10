@@ -86,6 +86,12 @@ var schema = []string{
 		target_author TEXT NOT NULL DEFAULT '',
 		target_text TEXT NOT NULL DEFAULT '',
 		min_len INTEGER NOT NULL DEFAULT 0,
+		deadline_days INTEGER NOT NULL DEFAULT 0,
+		review_started_at INTEGER NOT NULL DEFAULT 0,
+		review_deadline_at INTEGER NOT NULL DEFAULT 0,
+		review_result TEXT NOT NULL DEFAULT '',
+		review_note TEXT NOT NULL DEFAULT '',
+		review_hold INTEGER NOT NULL DEFAULT 0,
 		ad_tag INTEGER NOT NULL DEFAULT 1,
 		status TEXT NOT NULL DEFAULT 'open',
 		close_reason TEXT NOT NULL DEFAULT '',
@@ -225,6 +231,8 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS jury_invites (case_id INTEGER NOT NULL, user_id INTEGER NOT NULL, round INTEGER NOT NULL, invited_at INTEGER NOT NULL, voted_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(case_id, user_id))`,
 	`CREATE INDEX IF NOT EXISTS idx_ji_user ON jury_invites(user_id, voted_at)`,
 	`CREATE TABLE IF NOT EXISTS jury_votes (case_id INTEGER NOT NULL, juror_id INTEGER NOT NULL, vote TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY(case_id, juror_id))`,
+	`CREATE TABLE IF NOT EXISTS task_votes (task_id INTEGER NOT NULL, user_id INTEGER NOT NULL, vote INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY(task_id,user_id))`,
+	`CREATE INDEX IF NOT EXISTS idx_task_votes_user ON task_votes(user_id, created_at)`,
 	`CREATE TABLE IF NOT EXISTS ip_log (user_id INTEGER NOT NULL, prefix TEXT NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY(user_id, prefix))`,
 }
 
@@ -280,6 +288,12 @@ var migrations = []string{
 	`ALTER TABLE submissions ADD COLUMN check_note TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE submissions ADD COLUMN check_rejects INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE submissions ADD COLUMN check_auto INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN deadline_days INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN review_started_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN review_deadline_at INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE tasks ADD COLUMN review_result TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN review_note TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN review_hold INTEGER NOT NULL DEFAULT 0`,
 }
 
 func (s *Store) Close() { s.db.Close() }

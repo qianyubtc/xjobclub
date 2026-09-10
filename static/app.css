@@ -318,3 +318,4 @@ a.ticker{color:var(--strip-fg)}
 .note:last-child{border-bottom:0}
 .note.unread a{font-weight:800}
 .note.unread a::before{content:"● ";color:var(--red);font-size:10px;vertical-align:middle}
+.votebox{margin:8px 0 12px}.votebox .voteform .btns{margin-top:6px}.votebox select{margin-top:6px}

@@ -309,7 +309,7 @@ func newEnv(t *testing.T, extra string) *env {
 	gw := newGW("testkey-testkey")
 	prof := newProf()
 	cfgPath := filepath.Join(dir, "config.env")
-	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nX_SYND_API=%s\nX_PROFILE_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\n%s",
+	os.WriteFile(cfgPath, []byte(fmt.Sprintf("LISTEN=127.0.0.1:0\nBASE_URL=http://test.local\nDB_PATH=%s\nUPLOAD_DIR=%s\nBPG_URL=%s\nBPG_KEY=testkey-testkey\nX_TWEET_API=%s\nX_SYND_API=%s\nX_PROFILE_API=%s\nADMIN_HANDLES=admin\nCERT_FEE_ENABLED=true\nJURY_MIN_POOL=1000\nREVIEW_ENABLED=false\n%s",
 		filepath.Join(dir, "t.db"), filepath.Join(dir, "up"), gw.srv.URL, synd.srv.URL, prof.srv.URL, prof.srv.URL, extra)), 0o644)
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
@@ -1547,5 +1547,147 @@ func TestTopupViaOtherMethod(t *testing.T) {
 	kim.post("/s/"+x.Code+"/confirm", nil)
 	if x, _ = e.a.st.GetSubByID(x.ID); x.Status != SPaid || x.PaidAmountE8 != 200000000 {
 		t.Fatalf("confirm after other-method top-up: %s %d", x.Status, x.PaidAmountE8)
+	}
+}
+
+// ---- 发布审核：新任务先投票，通过才上线 ----
+
+func TestPublishReviewFlow(t *testing.T) {
+	e := newEnv(t, "REVIEW_ENABLED=true\nREVIEW_MIN_VOTES=3\nREVIEW_WINDOW_H=1\nOPEN_TASKS_NEWBIE=10\n")
+	admin := e.browser("admin")
+	admin.register("admin", "8009")
+	pub := e.browser("pub")
+	pub.register("pub", "8001")
+	pub.setUID("90001")
+	pub.certify("payer-P8")
+	var vs []*browser
+	for i, h := range []string{"v1", "v2", "v3"} {
+		b := e.browser(h)
+		b.register(h, fmt.Sprint(8002+i))
+		vs = append(vs, b)
+	}
+	// 投票人注册时长要够；发布方与管理员保持"新注册"
+	e.a.st.db.Exec(`UPDATE users SET created_at=created_at-2*24*3600*1000 WHERE handle IN ('v1','v2','v3')`)
+
+	// 1) 发布 → 审核中，不进大厅，接单被挡
+	task := pub.publish(taskForm(url.Values{"title": {"第一个任务"}}))
+	if task.Status != TReview || task.ReviewDeadlineAt == 0 || task.DeadlineDays != 7 {
+		t.Fatalf("new task should be in review: %+v", task.Status)
+	}
+	if _, body := vs[0].get("/"); strings.Contains(body, "第一个任务") {
+		t.Fatal("review task must not be listed in the lobby")
+	}
+	if resp, _ := vs[0].post("/t/"+task.Code+"/claim", nil); resp.Header.Get("Location") != task.Path() {
+		t.Fatal("claim on a review task should bounce")
+	}
+	// 游客 / 刚注册的人看不到审核中的任务页；有资格的审核人和发布方能看到
+	if resp, _ := e.browser("anon").get(task.Path()); resp.StatusCode != 404 {
+		t.Fatalf("anon should get 404 for review task, got %d", resp.StatusCode)
+	}
+	if resp, _ := admin.get(task.Path()); resp.StatusCode != 200 { // 管理员
+		t.Fatal("admin should see the review task")
+	}
+	if _, body := pub.get(task.Path()); !strings.Contains(body, "社区审核中") {
+		t.Fatal("owner should see the review banner")
+	}
+	if _, body := vs[0].get("/review"); !strings.Contains(body, "第一个任务") || !strings.Contains(body, "没问题，可以上线") {
+		t.Fatal("eligible voter should see the task on /review with vote buttons")
+	}
+	if _, body := vs[0].get("/"); !strings.Contains(body, "等你审核") {
+		t.Fatal("home banner should invite eligible voters")
+	}
+	// 发布方不能投自己的；刚注册的 admin 不满足注册时长
+	pub.post("/review/"+task.Code+"/vote", url.Values{"vote": {"pass"}})
+	admin.post("/review/"+task.Code+"/vote", url.Values{"vote": {"pass"}})
+	if p, f := e.a.st.VoteCounts(task.ID); p != 0 || f != 0 {
+		t.Fatalf("owner/fresh votes must not count: %d/%d", p, f)
+	}
+	// 三票通过 → 提前上线，截止从上线时起算
+	for _, b := range vs {
+		b.post("/review/"+task.Code+"/vote", url.Values{"vote": {"pass"}})
+	}
+	task, _ = e.a.st.GetTaskByID(task.ID)
+	if task.Status != "open" || task.ReviewResult != "vote_pass" || task.DeadlineAt < task.PublishedAt+6*dayMs {
+		t.Fatalf("3 pass votes should publish: %s %s", task.Status, task.ReviewResult)
+	}
+	if _, body := vs[0].get("/"); !strings.Contains(body, "第一个任务") {
+		t.Fatal("published task should be in the lobby")
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%通过审核%'`, task.OwnerID); n != 1 {
+		t.Fatalf("owner should be notified once: %d", n)
+	}
+
+	// 2) 两票反对、到期 → 转管理员裁定 → 管理员通过
+	t2 := pub.publish(taskForm(url.Values{"title": {"第二个任务"}}))
+	vs[0].post("/review/"+t2.Code+"/vote", url.Values{"vote": {"fail"}, "reason": {"发布方可疑"}, "text": {"链接可疑"}})
+	vs[1].post("/review/"+t2.Code+"/vote", url.Values{"vote": {"fail"}})
+	e.a.runJobs()
+	if t2, _ = e.a.st.GetTaskByID(t2.ID); t2.Status != TReview {
+		t.Fatal("must not decide before the deadline with only 2 votes")
+	}
+	if _, body := pub.get(t2.Path()); !strings.Contains(body, "发布方可疑：链接可疑") {
+		t.Fatal("owner should see anonymous rejection reasons")
+	}
+	e.a.st.db.Exec(`UPDATE tasks SET review_deadline_at=? WHERE id=?`, ms()-1, t2.ID)
+	e.a.runJobs()
+	t2, _ = e.a.st.GetTaskByID(t2.ID)
+	if t2.Status != TReview || t2.ReviewHold != 1 {
+		t.Fatalf("2 objections at deadline should hold for admin: %s hold=%d", t2.Status, t2.ReviewHold)
+	}
+	if _, body := admin.get("/admin"); !strings.Contains(body, "第二个任务") || !strings.Contains(body, "待裁定") {
+		t.Fatal("admin queue should list the held task")
+	}
+	if resp, _ := vs[2].post("/admin/task/"+t2.Code+"/approve", nil); resp.StatusCode != 403 && resp.StatusCode != 404 {
+		t.Fatalf("non-admin approve must be refused, got %d", resp.StatusCode)
+	}
+	admin.post("/admin/task/"+t2.Code+"/approve", nil)
+	if t2, _ = e.a.st.GetTaskByID(t2.ID); t2.Status != "open" || t2.ReviewResult != "admin_pass" {
+		t.Fatalf("admin approve: %s %s", t2.Status, t2.ReviewResult)
+	}
+
+	// 3) 无票到期 → 自动上线
+	t3 := pub.publish(taskForm(url.Values{"title": {"第三个任务"}}))
+	e.a.st.db.Exec(`UPDATE tasks SET review_deadline_at=? WHERE id=?`, ms()-1, t3.ID)
+	e.a.runJobs()
+	if t3, _ = e.a.st.GetTaskByID(t3.ID); t3.Status != "open" || t3.ReviewResult != "timeout_pass" {
+		t.Fatalf("silent deadline should auto-publish: %s %s", t3.Status, t3.ReviewResult)
+	}
+
+	// 4) 三票反对 → 驳回；发布方改文案 → 重新审核，旧票清空
+	t4 := pub.publish(taskForm(url.Values{"title": {"第四个任务"}}))
+	for _, b := range vs {
+		b.post("/review/"+t4.Code+"/vote", url.Values{"vote": {"fail"}, "reason": {"诈骗 / 钓鱼 / 引流付费"}})
+	}
+	t4, _ = e.a.st.GetTaskByID(t4.ID)
+	if t4.Status != TRejected || t4.ReviewResult != "vote_reject" {
+		t.Fatalf("3 fail votes should reject: %s %s", t4.Status, t4.ReviewResult)
+	}
+	if resp, _ := vs[0].get(t4.Path()); resp.StatusCode != 404 {
+		t.Fatal("rejected task should be hidden from others")
+	}
+	if _, body := pub.get(t4.Path()); !strings.Contains(body, "未通过审核") {
+		t.Fatal("owner should see rejection")
+	}
+	pub.post("/new", url.Values{"edit": {t4.Code}, "title": {"第四个任务（改）"}, "content1": {"改过的文案 https://example.com/z"}, "match_mode": {"exact"}, "ttype": {"post"}})
+	t4, _ = e.a.st.GetTaskByID(t4.ID)
+	if t4.Status != TReview || t4.Title != "第四个任务（改）" {
+		t.Fatalf("edit should resubmit for review: %s %q", t4.Status, t4.Title)
+	}
+	if p, f := e.a.st.VoteCounts(t4.ID); p != 0 || f != 0 {
+		t.Fatal("old votes must be cleared on resubmit")
+	}
+
+	// 5) 管理员发布免审
+	admin.setUID("90009")
+	admin.certify("payer-A8")
+	ta := admin.publish(taskForm(url.Values{"title": {"管理员任务"}}))
+	if ta.Status != "open" || ta.ReviewResult != "skipped" {
+		t.Fatalf("admin should skip review: %s %s", ta.Status, ta.ReviewResult)
+	}
+	// 页面不泄漏原始值
+	for _, pth := range []string{"/review", "/admin", task.Path(), t2.Path(), "/me?tab=tasks", "/"} {
+		if _, body := pub.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+			t.Fatalf("raw value leaked on %s", pth)
+		}
 	}
 }

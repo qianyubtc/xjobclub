@@ -13,6 +13,7 @@
     <ul><li>累计完成 {{.Counts.Paid}} 单</li><li>已支付 {{amt .PaidSum}} U</li><li>{{.Counts.Users}} 位用户</li></ul>
   </div>
 </div>
+{{if and .Me .ReviewN}}<a class="warnbar" href="/review" style="display:block">🗳 有 {{.ReviewN}} 个新任务等你审核，通过才会上线 →</a>{{end}}
 <a class="ticker" href="/records" aria-label="成交记录"><div class="rail">{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}{{range .Recent}}<span>🛵 <em>@{{.Handle}}</em> 完成一单 +{{amt .AmountE8}} U · {{.Ago}}</span>{{else}}<span>🛵 还没有人完成第一单，<em>冲</em>！</span><span>📣 发布方写好推文出价，接单方发帖验证，钱直达币安账户</span><span>⚖️ 赖账上黑名单榜 · 争议交小法庭</span>{{end}}</div></a>
 <div class="sec-h"><h2>接单大厅</h2><span class="eyebrow">{{.Total}} 单在线</span><a class="small" href="/records" style="margin-left:auto">成交记录 →</a></div>
 <form class="filters" method="get" action="/" data-autosubmit data-noguard>

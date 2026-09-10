@@ -74,35 +74,41 @@ func (p *PayProfile) Gateway() bool { return p != nil && p.Mode == "gateway" && 
 // ---- 任务 ----
 
 type Task struct {
-	ID             int64
-	Code           string
-	OwnerID        int64
-	Title          string
-	Contents       []string // 文案变体
-	ContentsNorm   []string
-	MatchMode      string // exact | contains
-	RewardE8       int64
-	Currency       string
-	SlotsTotal     int64
-	ClaimTTLMin    int64
-	RetentionH     int64
-	PayWindowH     int64
-	DeadlineAt     int64
-	MinAccountDays int64
-	MinFollowers   int64
-	AdTag          bool
-	Kind           string // post 发帖 | reply 评论 | like 点赞 | repost 转发
-	TargetTweetID  string // 评论/点赞/转发的目标推文
-	TargetURL      string
-	TargetAuthor   string
-	TargetText     string
-	MinLen         int64  // 评论自由发挥时的最少字数
-	Status         string // open | paused | closed
-	CloseReason    string
-	PausedByFreeze bool
-	PublishedAt    int64
-	CreatedAt      int64
-	UpdatedAt      int64
+	ID               int64
+	Code             string
+	OwnerID          int64
+	Title            string
+	Contents         []string // 文案变体
+	ContentsNorm     []string
+	MatchMode        string // exact | contains
+	RewardE8         int64
+	Currency         string
+	SlotsTotal       int64
+	ClaimTTLMin      int64
+	RetentionH       int64
+	PayWindowH       int64
+	DeadlineAt       int64
+	MinAccountDays   int64
+	MinFollowers     int64
+	AdTag            bool
+	Kind             string // post 发帖 | reply 评论 | like 点赞 | repost 转发
+	TargetTweetID    string // 评论/点赞/转发的目标推文
+	TargetURL        string
+	TargetAuthor     string
+	TargetText       string
+	MinLen           int64 // 评论自由发挥时的最少字数
+	DeadlineDays     int64 // 发布时填的截止天数（审核通过时重新起算）
+	ReviewStartedAt  int64
+	ReviewDeadlineAt int64
+	ReviewResult     string // vote_pass | vote_reject | timeout_pass | admin_pass | admin_reject | skipped
+	ReviewNote       string
+	ReviewHold       int64  // 1 = 到期仍有反对，等管理员裁定
+	Status           string // open | paused | closed
+	CloseReason      string
+	PausedByFreeze   bool
+	PublishedAt      int64
+	CreatedAt        int64
+	UpdatedAt        int64
 
 	// 派生
 	Used      int64 // 占用名额数
@@ -452,4 +458,12 @@ func auditText(action string) string {
 		return v
 	}
 	return action
+}
+
+// TaskVote 发布审核的一票。
+type TaskVote struct {
+	UserID    int64
+	Vote      int64 // 1 通过 / -1 反对
+	Reason    string
+	CreatedAt int64
 }

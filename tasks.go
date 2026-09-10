@@ -75,6 +75,12 @@ func (a *App) canClaim(u *User, t *Task, st WorkerStats, refresh bool) string {
 	if p, _ := a.st.GetPayProfile(u.ID); p == nil {
 		return "请先在「收款设置」里绑定币安 UID，否则没法收钱"
 	}
+	if t.Status == TReview {
+		return "任务审核中，通过后开放接单"
+	}
+	if t.Status == TRejected {
+		return "任务未通过审核"
+	}
 	if t.Status != "open" {
 		return "任务当前不接受接单"
 	}
@@ -407,7 +413,12 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.st.Audit(u.ID, "task.edit", "task", t.ID, nil, a.ip(r))
-		a.flash(w, "已保存")
+		if t.Status == TReview || t.Status == TRejected {
+			a.st.RestartReview(t.ID, ms(), ms()+a.cfg.ReviewWindowH*hourMs) // 改过文案，旧票作废，重新审
+			a.flash(w, "已保存并重新提交审核")
+		} else {
+			a.flash(w, "已保存")
+		}
 		http.Redirect(w, r, t.Path(), http.StatusFound)
 		return
 	}
@@ -485,6 +496,12 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 	if target != nil {
 		t.TargetTweetID, t.TargetURL, t.TargetAuthor, t.TargetText = target.ID, "https://x.com/"+target.User.Handle+"/status/"+target.ID, target.User.Handle, truncate(target.Text, 140)
 	}
+	t.DeadlineDays, t.Status = days, "open"
+	if a.cfg.ReviewEnabled && !a.reviewSkip(u, st) {
+		t.Status, t.ReviewStartedAt, t.ReviewDeadlineAt = TReview, ms(), ms()+a.cfg.ReviewWindowH*hourMs
+	} else if a.cfg.ReviewEnabled {
+		t.ReviewResult = "skipped"
+	}
 	var id int64
 	for i := 0; i < 3; i++ {
 		id, err = a.st.CreateTask(t)
@@ -501,7 +518,11 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.st.Audit(u.ID, "task.create", "task", id, map[string]any{"reward": fmtE8(reward), "slots": slots, "kind": f.TType}, a.ip(r))
-	a.flash(w, "任务已发布")
+	if t.Status == TReview {
+		a.flash(w, fmt.Sprintf("已提交社区审核（约 %s），通过后自动上线，会通知你", dur(a.cfg.ReviewWindowH)))
+	} else {
+		a.flash(w, "任务已发布")
+	}
 	http.Redirect(w, r, t.Path(), http.StatusFound)
 }
 
@@ -509,26 +530,28 @@ func (a *App) handleNewPost(w http.ResponseWriter, r *http.Request) {
 
 type taskPage struct {
 	Base
-	T          *Task
-	Owner      *User
-	OwnerStats PubStats
-	OwnerTier  Tier
-	Mine       *Submission // 我在这个任务上的进行中记录
-	Block      string      // 不能接单的原因
-	IsOwner    bool
-	Subs       []*Submission
-	Workers    map[int64]*User
-	Full       bool
-	Done       bool
-	CanEdit    bool
-	Public     []PublicRecord
-	Pending    []*Submission // 需要发布方处理：待付款 / 逾期 / 待确认（含补差）——不能叫 Todo，会遮住 Base.Todo
-	Active     []*Submission // 进行中：已接单 / 验证中 / 留存中 / 申诉中
-	DoneList   []*Submission
-	Dead       []*Submission // 过期 / 作废 / 违约
-	PayDueN    int64         // 待付款 + 逾期（要掏钱的）
-	ActiveN    int64
-	DeadN      int64
+	T           *Task
+	Owner       *User
+	OwnerStats  PubStats
+	OwnerTier   Tier
+	Mine        *Submission // 我在这个任务上的进行中记录
+	Block       string      // 不能接单的原因
+	Review      *ReviewInfo // 审核中 / 未通过时的投票信息
+	VoteReasons []string
+	IsOwner     bool
+	Subs        []*Submission
+	Workers     map[int64]*User
+	Full        bool
+	Done        bool
+	CanEdit     bool
+	Public      []PublicRecord
+	Pending     []*Submission // 需要发布方处理：待付款 / 逾期 / 待确认（含补差）——不能叫 Todo，会遮住 Base.Todo
+	Active      []*Submission // 进行中：已接单 / 验证中 / 留存中 / 申诉中
+	DoneList    []*Submission
+	Dead        []*Submission // 过期 / 作废 / 违约
+	PayDueN     int64         // 待付款 + 逾期（要掏钱的）
+	ActiveN     int64
+	DeadN       int64
 }
 
 func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
@@ -541,7 +564,27 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 		a.errorPage(w, r, http.StatusNotFound, "任务不存在", "")
 		return
 	}
+	if t.Status == TReview || t.Status == TRejected {
+		// 审核中只给发布方、管理员和有资格的审核人看；未通过只给发布方看
+		me := a.currentUser(r)
+		privileged := me != nil && (me.ID == t.OwnerID || a.isAdmin(me))
+		if !privileged {
+			if t.Status == TRejected || me == nil {
+				a.errorPage(w, r, http.StatusNotFound, "任务审核中", "这个任务还没有通过社区审核，暂不公开。")
+				return
+			}
+			if ok, why := a.voterEligible(me, t); !ok {
+				a.errorPage(w, r, http.StatusNotFound, "任务审核中", "这个任务还在社区审核，"+why+"。")
+				return
+			}
+		}
+	}
 	p := taskPage{Base: a.base(w, r), T: t, Workers: map[int64]*User{}}
+	if t.Status == TReview || t.Status == TRejected {
+		p.NoIndex = true
+		p.Review = a.reviewInfo(t, p.Me)
+		p.VoteReasons = voteReasons
+	}
 	p.Owner, _ = a.st.GetUserByID(t.OwnerID)
 	p.OwnerStats = a.st.PubStats(t.OwnerID)
 	p.OwnerTier = a.pubTier(p.OwnerStats)

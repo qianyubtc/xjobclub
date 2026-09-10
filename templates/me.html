@@ -27,7 +27,7 @@
   {{if and (not .ToPay) (not .ToCheck) (not .ToConfirm) (not .Active) (not .Invites)}}<div class="empty"><div class="big">没有待办</div><p class="muted"><a href="/">去大厅接一单</a> 或 <a href="/new">发布任务</a></p></div>{{end}}
 {{else if eq .Tab "tasks"}}
   {{if .MyTasks}}{{range .MyTasks}}{{$c := index $.TaskStats .ID}}<a class="tcard" href="{{.Path}}#manage">
-    <div class="tcard-h"><span class="tt">{{.Title}}</span><span class="st {{if eq .Status "open"}}good{{else if eq .Status "paused"}}warn{{else}}muted{{end}}">{{taskStatus .Status}}</span></div>
+    <div class="tcard-h"><span class="tt">{{.Title}}</span><span class="st {{if eq .Status "open"}}good{{else if eq .Status "paused"}}warn{{else if eq .Status "review"}}wait{{else if eq .Status "rejected"}}bad{{else}}muted{{end}}">{{taskStatus .Status}}</span></div>
     <div class="tcard-m">{{if and .Kind (ne .Kind "post")}}<span class="chip kind">{{.KindText}}</span><span>·</span>{{end}}<span class="amt">{{amt .RewardE8}} U/{{.Unit}}</span><span>·</span><span>{{.DoneCount}} / {{.SlotsTotal}} 已完成</span><span>·</span><span>截止 {{fdate .DeadlineAt}}</span></div>
     <div class="prog"><span class="p-done" style="width:{{pct .DoneCount .SlotsTotal}}%"></span><span class="p-pay" style="width:{{pct $c.PayDue .SlotsTotal}}%"></span><span class="p-act" style="width:{{pct (add $c.Active $c.Await) .SlotsTotal}}%"></span></div>
     <div class="tcard-f">{{if $c.PayDue}}<span class="pill bad">待你付款 {{$c.PayDue}}</span>{{end}}{{if $c.Await}}<span class="pill wait">待对方确认 {{$c.Await}}</span>{{end}}{{if $c.Active}}<span class="pill">进行中 {{$c.Active}}</span>{{end}}<span class="pill muted">剩余 {{.Left}}</span></div>

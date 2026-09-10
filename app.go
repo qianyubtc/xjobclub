@@ -55,6 +55,7 @@ type Base struct {
 	IsAdmin   bool
 	Unread    int64
 	Todo      int64 // 待办数（待付款 + 待确认 + 陪审邀请）
+	ReviewN   int64 // 等我审核的任务数
 	Path      string
 	Flash     string
 	NoIndex   bool
@@ -64,7 +65,7 @@ type Base struct {
 	CSSVer    string
 }
 
-var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records"}
+var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records", "review"}
 
 func newApp(cfg *Config) (*App, error) {
 	st, err := openStore(cfg.DBPath)
@@ -167,7 +168,7 @@ func (a *App) funcs() template.FuncMap {
 			return subStatus(s)
 		},
 		"taskStatus": func(s string) string {
-			return map[string]string{"open": "接单中", "paused": "已暂停", "closed": "已关闭"}[s]
+			return map[string]string{"open": "接单中", "paused": "已暂停", "closed": "已关闭", "review": "审核中", "rejected": "未通过审核"}[s]
 		},
 		"payStatus": func(s string) string {
 			if v, ok := map[string]string{"pending": "等待到账", "paid": "已到账", "underpaid": "少付", "expired": "已过期", "closed": "已关闭"}[s]; ok {
@@ -292,6 +293,8 @@ func (a *App) routes() {
 	m.HandleFunc("POST /new", a.handleNewPost)
 	m.HandleFunc("GET /t/{code}", a.handleTask)
 	m.HandleFunc("POST /t/{code}/claim", a.handleClaim)
+	m.HandleFunc("GET /review", a.handleReview)
+	m.HandleFunc("POST /review/{code}/vote", a.handleReviewVote)
 	m.HandleFunc("POST /t/{code}/{action}", a.handleTaskAction)
 	// 接单记录
 	m.HandleFunc("GET /s/{code}", a.handleSub)
@@ -378,6 +381,9 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		b.IsAdmin = a.isAdmin(b.Me)
 		b.Unread = a.st.UnreadCount(b.Me.ID)
 		b.Todo = a.todoCount(b.Me)
+		if a.cfg.ReviewEnabled {
+			b.ReviewN = a.st.ReviewPendingFor(b.Me.ID)
+		}
 		a.st.TouchIP(b.Me.ID, a.ip(r))
 	}
 	if w != nil {

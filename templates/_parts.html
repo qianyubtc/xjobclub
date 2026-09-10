@@ -51,3 +51,13 @@
 </section>
 {{if .Facts}}<section class="card"><h2 style="margin-top:0">系统事实（记录时间线）</h2><ul class="tl">{{range .Facts}}<li><span class="t">{{ftime .CreatedAt}}</span>{{.Action}}{{if .Meta}} <span class="muted small">{{.Meta}}</span>{{end}}</li>{{end}}</ul></section>{{end}}
 {{end}}
+{{define "votebox"}}<div class="votebox">
+  {{if .R.MyVote}}<div class="notice {{if eq .R.MyVote 1}}ok{{else}}warn{{end}}">你投了「{{if eq .R.MyVote 1}}没问题{{else}}有问题{{end}}」{{if .R.MyReason}}：{{.R.MyReason}}{{end}} · 当前 {{.R.Pass}} 通过 / {{.R.Fail}} 反对</div>
+  {{else if .R.CanVote}}
+  <form method="post" action="/review/{{.T.Code}}/vote" class="voteform"><input type="hidden" name="next" value="{{.Next}}">
+    <div class="btns"><button class="btn" name="vote" value="pass">✅ 没问题，可以上线</button><button class="btn sec" name="vote" value="fail">⚠️ 有问题</button></div>
+    <details class="fold" style="margin-top:8px"><summary>投「有问题」时说明原因（可选）</summary><select name="reason"><option value="">不说明</option>{{range .Reasons}}<option>{{.}}</option>{{end}}</select><input name="text" maxlength="200" placeholder="补充说明（可选）" style="margin-top:6px"></details>
+  </form>
+  {{else}}<div class="notice">{{.R.Why}}</div>{{end}}
+  <div class="hint">审核截止 {{ftime .R.Deadline}}。满 {{.R.MinVotes}} 票且 {{.R.EarlyPass}}% 以上通过即上线、{{.R.EarlyFail}}% 以上反对即驳回；到期没有像样的反对就自动上线，有反对则转管理员裁定。</div>
+</div>{{end}}

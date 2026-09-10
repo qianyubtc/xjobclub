@@ -1,0 +1,19 @@
+{{define "title"}}任务审核 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="sec-h"><h1 style="margin:0">任务审核</h1><span class="eyebrow">{{len .Tasks}} 个待审</span></div>
+  <p class="small">新任务先在这里公示投票，通过后才会出现在大厅。看看文案、目标和发布方，判断有没有诈骗、钓鱼、引流付费、违法或明显不合理的地方。{{if .Eligible}}你具备审核资格，累计参与 {{.MyVotes}} 次。{{else}}<b>{{.Why}}</b>{{end}}</p>
+  <p class="small muted">资格：注册满 {{dur .Cfg.ReviewVoterAgeH}}、X 账号注册满 {{.Cfg.ReviewVoterXDays}} 天、不在黑名单，不能审自己的任务，每天最多 {{.Cfg.ReviewVotesPerDay}} 次。审核不给钱；反对票的理由发布方看得到，但看不到是谁投的。</p>
+</section>
+{{range .Tasks}}{{$o := index $.Owners .OwnerID}}{{$s := index $.Stats .OwnerID}}{{$r := index $.Infos .ID}}
+<section class="card">
+  <div class="row between"><h2 style="margin:0"><a href="{{.Path}}">{{.Title}}</a></h2><div class="big amt">{{amt .RewardE8}} <small style="font-size:13px">U / {{.Unit}}</small></div></div>
+  <div class="row small muted" style="margin:6px 0 10px"><span class="chip kind">{{.KindText}}任务</span><span>{{.SlotsTotal}} 个名额</span>{{if not .Manual}}<span>留存 {{dur .RetentionH}}</span>{{end}}<span>付款时限 {{dur .PayWindowH}}</span>{{if .MinFollowers}}<span>粉丝 ≥ {{.MinFollowers}}</span>{{end}}{{if .MinAccountDays}}<span>X 注册满 {{.MinAccountDays}} 天</span>{{end}}</div>
+  {{if and .Kind (ne .Kind "post")}}<div class="kv"><span class="k">目标推文</span><span class="v"><a href="{{.TargetURL}}" target="_blank" rel="noopener">@{{.TargetAuthor}} 的推文 ↗</a>{{if .TargetText}}<div class="small muted">{{trunc .TargetText 120}}</div>{{end}}</span></div>{{end}}
+  {{range .Contents}}<pre class="tweet">{{.}}</pre>{{end}}{{if and (eq .MatchMode "any") (not .Contents)}}<p class="muted small">评论自由发挥，至少 {{.MinLen}} 字。</p>{{end}}
+  {{if $o}}<div class="small" style="margin:10px 0">发布方 {{template "usermini" $o}} · 网关核销 {{$s.PaidGateway}} 单 · 逾期 {{$s.Overdue}} 次{{if $s.CheckVoids}} · 核对作废 {{$s.CheckVoids}}{{end}} · 注册于 {{fdate $o.CreatedAt}}{{if $o.XCreatedMs}} · X 账号约创建于 {{fdate $o.XCreatedMs}}{{end}}</div>{{end}}
+  {{template "votebox" (dict "T" . "R" $r "Reasons" $.Reasons "Next" "/review")}}
+</section>
+{{else}}<div class="empty"><div class="big">暂时没有待审核的任务</div><p class="muted">新任务发布后会先出现在这里。</p></div>{{end}}
+{{end}}
+{{define "scripts"}}{{end}}

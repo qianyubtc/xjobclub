@@ -9,15 +9,18 @@ import (
 
 type adminPage struct {
 	Base
-	Review   []*Dispute
-	Evidence []*Dispute
-	Jury     []*Dispute
-	Appeal   []*Dispute
-	Users    map[int64]*User
-	Subs     map[int64]*Submission
-	RecentBL []*BlacklistEntry
-	Counts   map[string]int64
-	Pool     int64
+	Review      []*Dispute
+	Evidence    []*Dispute
+	Jury        []*Dispute
+	Appeal      []*Dispute
+	Users       map[int64]*User
+	Subs        map[int64]*Submission
+	RecentBL    []*BlacklistEntry
+	Counts      map[string]int64
+	Pool        int64
+	ReviewTasks []*Task
+	TaskOwners  map[int64]*User
+	Votes       map[int64][2]int64
 }
 
 func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -29,6 +32,17 @@ func (a *App) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	p.Evidence, _ = a.st.DisputesByStatus([]string{"evidence"}, 100)
 	p.Jury, _ = a.st.DisputesByStatus([]string{"jury"}, 100)
 	p.Appeal, _ = a.st.DisputesByStatus([]string{"appeal"}, 100)
+	p.ReviewTasks, _ = a.st.TasksInReview()
+	p.TaskOwners, p.Votes = map[int64]*User{}, map[int64][2]int64{}
+	for _, t := range p.ReviewTasks {
+		if _, ok := p.TaskOwners[t.OwnerID]; !ok {
+			if o, _ := a.st.GetUserByID(t.OwnerID); o != nil {
+				p.TaskOwners[t.OwnerID] = o
+			}
+		}
+		pass, fail := a.st.VoteCounts(t.ID)
+		p.Votes[t.ID] = [2]int64{pass, fail}
+	}
 	for _, list := range [][]*Dispute{p.Review, p.Evidence, p.Jury, p.Appeal} {
 		for _, d := range list {
 			for _, id := range []int64{d.OpenerID, d.AgainstID} {
@@ -233,6 +247,23 @@ func (a *App) handleAdminTask(w http.ResponseWriter, r *http.Request) {
 		a.takedownTask(t, admin.ID, a.ip(r))
 		a.notify(t.OwnerID, "account", "任务 "+t.Code+" 已被管理员下架", cleanText(r.FormValue("reason"), 200, false), t.Path())
 		a.flash(w, "已下架")
+	case "approve":
+		if !a.finishReview(t, true, "admin_pass", "管理员审核通过", admin.ID) {
+			a.flash(w, "任务不在审核中")
+		} else {
+			a.flash(w, "已通过，任务上线")
+		}
+		http.Redirect(w, r, "/admin", http.StatusFound)
+		return
+	case "reject":
+		reason := cleanText(r.FormValue("reason"), 200, false)
+		if !a.finishReview(t, false, "admin_reject", strings.TrimSpace("管理员驳回 "+reason), admin.ID) {
+			a.flash(w, "任务不在审核中")
+		} else {
+			a.flash(w, "已驳回")
+		}
+		http.Redirect(w, r, "/admin", http.StatusFound)
+		return
 	default:
 		a.errorPage(w, r, http.StatusNotFound, "操作不存在", "")
 		return

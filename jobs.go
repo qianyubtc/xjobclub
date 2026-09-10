@@ -45,6 +45,7 @@ func (a *App) runJobs() {
 	a.overduePayables(now)
 	a.autoApproveCheckings(now)
 	a.closeTasks()
+	a.reviewTick(now)
 	a.syncPending()
 	a.routeDisputes(now)
 	a.juryTick()
