@@ -1,4 +1,5 @@
 {{define "title"}}{{.T.Title}} · {{amt .T.RewardE8}} U · {{.SiteTitle}}{{end}}
+{{define "ogtitle"}}{{.T.Title}} · {{if .T.CPM}}{{amt .T.CpmE8}} U / 千浏览{{else}}{{amt .T.RewardE8}} U / {{.T.Unit}}{{end}} · {{.SiteTitle}}{{end}}
 {{define "content"}}
 <section class="card">
   <div class="row between"><h1 style="margin:0">{{.T.Title}}</h1><div class="big amt">{{if .T.CPM}}{{amt .T.CpmE8}} <small style="font-size:13px">U / 千浏览</small>{{else}}{{amt .T.RewardE8}} <small style="font-size:13px">U / {{.T.Unit}}</small>{{end}}</div></div>
@@ -13,6 +14,8 @@
     <div><b>{{dur .T.PayWindowH}}</b><span>付款时限</span></div>
     <div><b>{{fdate .T.DeadlineAt}}</b><span>任务截止</span></div>
   </div>
+  {{if and (eq .T.Status "open") (not .Full)}}<div class="flow"><span>接单</span><i></i><span>{{durMin .T.ClaimTTLMin}} 内{{if .T.Manual}}{{.T.DoneVerb}}并提交{{else}}发帖回填{{end}}</span><i></i><span>{{if .T.Manual}}发布方核对（48h 内）{{else}}自动验证{{if .T.RetentionH}} · 留存 {{dur .T.RetentionH}}{{end}}{{end}}</span><i></i><span>发布方 {{dur .T.PayWindowH}} 内付款</span><i></i><span class="end">现在接，最晚约 <b>{{ftime .PayByMs}}</b> 到手</span></div>{{end}}
+  {{if .ShareText}}<div class="btns share"><a class="btn sec sm" href="https://x.com/intent/post?text={{.ShareText}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-megaphone"/></svg>分享到 X</a><button type="button" class="btn ghost sm copy" data-copy="{{.BaseURL}}{{.T.Path}}">复制链接</button></div>{{end}}
   <div class="hint">{{if .T.Manual}}接单后 {{durMin .T.ClaimTTLMin}} 内完成{{.T.DoneVerb}}并提交核对，发布方 48 小时不处理视为通过；{{else}}接单后 {{durMin .T.ClaimTTLMin}} 内回填{{if eq .T.Kind "reply"}}评论{{else}}推文{{end}}链接{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}，到期复检通过才进入待付款{{else}}，验证通过即待付款{{end}}；{{end}}待付款后 {{dur .T.PayWindowH}} 内付款，发布方逾期会被冻结并可被举报。</div>
   <div class="kv">
     {{if and .T.Kind (ne .T.Kind "post")}}<span class="k">任务类型</span><span class="v"><b>{{.T.KindText}}</b>{{if eq .T.Kind "reply"}}：在目标推文下方直接回复{{else if eq .T.Kind "like"}}：给目标推文点赞，由发布方核对{{else}}：转发目标推文，系统自动检测或由发布方核对{{end}}</span>

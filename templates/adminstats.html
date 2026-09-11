@@ -1,0 +1,65 @@
+{{define "title"}}运营看板 · {{.SiteTitle}}{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="sec-h"><h1 style="margin:0">运营看板</h1><a class="small" href="/admin" style="margin-left:auto">← 后台</a></div>
+  <div class="stats" style="margin-top:12px">
+    <div><b class="num">{{index .Funnel "users"}}</b><span>用户（24h 新增 {{index .Funnel "new24"}}）</span></div>
+    <div><b class="num">{{index .Funnel "uid"}}</b><span>绑了收款 UID</span></div>
+    <div><b class="num">{{index .Funnel "claimed"}}</b><span>接过单的人</span></div>
+    <div><b class="num">{{index .Funnel "done"}}</b><span>完成过的人</span></div>
+    <div><b class="num">{{index .Funnel "publishers"}}</b><span>发布方</span></div>
+    <div><b class="num">{{index .Funnel "active24"}}</b><span>24h 活跃 / 7 天 {{index .Funnel "active7"}}</span></div>
+    <div><b class="num">{{index .Funnel "tg"}}</b><span>绑了 Telegram</span></div>
+    <div><b class="num">{{index .Tasks "left"}}</b><span>在线剩余名额（{{index .Tasks "open"}} 个任务）</span></div>
+  </div>
+  <p class="hint">漏斗每一级掉多少人，决定该推什么：绑 UID 的人多、接单的人少 = 缺能接的单；接单多、完成少 = 验证或流程有坑。</p>
+</section>
+<section class="card">
+  <h2 style="margin-top:0">近 14 天</h2>
+  <div class="tbl"><table class="nowrap"><tr><th>日期</th><th>注册</th><th>发布任务</th><th>接单</th><th>验证通过</th><th>完成付款</th></tr>
+  {{range .Days}}<tr><td class="num">{{.Day}}</td><td class="num">{{.Regs}}</td><td class="num">{{.NewTasks}}</td><td class="num">{{.Claims}}</td><td class="num">{{.Verified}}</td><td class="num">{{.Paid}}</td></tr>{{end}}
+  </table></div>
+</section>
+<section class="card">
+  <h2 style="margin-top:0">任务供给与门槛</h2>
+  <div class="stats" style="margin-bottom:10px">
+    <div><b class="num">{{index .Tasks "open"}}</b><span>在线任务 / 共 {{index .Tasks "total"}}</span></div>
+    <div><b class="num">{{index .Tasks "review"}}</b><span>审核中</span></div>
+    <div><b class="num">{{index .Tasks "review_h"}} <small>小时</small></b><span>平均审核用时</span></div>
+    <div><b class="num">{{index .Funnel "active24"}}</b><span>人在等单</span></div>
+  </div>
+  {{if .OpenGate}}<div class="tbl"><table><tr><th>任务</th><th>账号年龄 ≥</th><th>粉丝 ≥</th><th>剩余名额</th><th>够格人数</th></tr>
+  {{range .OpenGate}}<tr><td><a href="/t/{{.Code}}">{{.Title}}</a> <code>{{.Code}}</code></td><td class="num">{{.MinDays}} 天</td><td class="num">{{.MinFollowers}}</td><td class="num">{{.Left}}</td><td class="num" {{if lt .Eligible 30}}style="color:var(--red);font-weight:700"{{end}}>{{.Eligible}}</td></tr>{{end}}
+  </table></div><p class="hint">够格人数是按账号年龄和粉丝数两项门槛算的全站人数；标红的任务基本没人能接，值得提醒发布方改门槛。</p>{{else}}<p class="muted">没有在线任务。</p>{{end}}
+  <div class="row" style="gap:24px;flex-wrap:wrap;margin-top:10px">
+    <div><b>审核结果</b><ul class="small">{{range .Reviews}}<li>{{.K}}：{{.N}}</li>{{end}}</ul></div>
+    <div><b>留存设置</b><ul class="small">{{range .Retents}}<li>{{.K}}：{{.N}} 个任务</li>{{end}}</ul></div>
+  </div>
+</section>
+<section class="card">
+  <h2 style="margin-top:0">记录与付款</h2>
+  <div class="stats" style="margin-bottom:10px">
+    <div><b class="num">{{printf "%.0f" (index .Timing "claim_to_verified_min")}} <small>分钟</small></b><span>接单 → 验证通过</span></div>
+    <div><b class="num">{{printf "%.1f" (index .Timing "payable_to_paid_h")}} <small>小时</small></b><span>待付款 → 付清</span></div>
+    <div><b class="num">{{printf "%.0f" (index .Timing "verify_fail_rate")}}<small>%</small></b><span>提交未通过占比</span></div>
+    <div><b class="num">{{index .Risk "overdue"}}</b><span>逾期未付</span></div>
+  </div>
+  <div class="row" style="gap:24px;flex-wrap:wrap">
+    <div><b>记录状态</b><ul class="small">{{range .Subs}}<li>{{subStatus .K}}：{{.N}}</li>{{end}}</ul></div>
+    <div><b>完成方式</b><ul class="small">{{range .Pays}}<li>{{methodText .K}}：{{.N}}</li>{{end}}</ul></div>
+    <div><b>当前验证失败原因</b><ul class="small">{{range .Errs}}<li>{{.K}}…：{{.N}}</li>{{else}}<li class="muted">无</li>{{end}}</ul></div>
+  </div>
+</section>
+<section class="card flat">
+  <h2 style="margin-top:0">风险信号</h2>
+  <div class="stats">
+    <div><b class="num">{{index .Risk "blacklist"}}</b><span>黑名单在榜</span></div>
+    <div><b class="num">{{index .Risk "disputes_open"}}</b><span>未结申诉</span></div>
+    <div><b class="num">{{index .Risk "self_deal"}}</b><span>疑似自导自演记录</span></div>
+    <div><b class="num">{{index .Risk "shared_prefix"}}</b><span>≥3 人共用的网段</span></div>
+    <div><b class="num">{{index .Risk "followers_unknown"}}</b><span>粉丝数读不到</span></div>
+    <div><b class="num">{{index .Risk "x_young"}}</b><span>X 账号不满 30 天</span></div>
+  </div>
+</section>
+{{end}}
+{{define "scripts"}}{{end}}

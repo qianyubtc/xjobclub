@@ -1,6 +1,6 @@
 {{define "title"}}通知 · {{.SiteTitle}}{{end}}
 {{define "content"}}
-<div class="narrow"><section class="card"><h1>通知</h1>
+<div class="narrow"><section class="card"><h1>通知</h1>{{if and .TGBot (not .TGBound)}}<div class="notice"><a href="/me?tab=settings">绑定 Telegram</a> 后这些通知会实时推送，不用刷网站。</div>{{end}}
 {{if .Notes}}{{range .Notes}}<div class="msg"><div class="who">{{ftime .CreatedAt}}{{if not .ReadAt}} · <b>新</b>{{end}}</div><div><b>{{.Title}}</b></div>{{if .Body}}<div class="small">{{.Body}}</div>{{end}}{{if .Link}}<a class="small" href="{{.Link}}">查看 →</a>{{end}}</div>{{end}}{{else}}<p class="muted">还没有通知。有人接你的单、发帖通过、该付款或到账时都会出现在这里。</p>{{end}}
 </section></div>
 {{end}}

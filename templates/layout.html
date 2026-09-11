@@ -9,6 +9,12 @@
 <title>{{template "title" .}}</title>
 <meta name="description" content="{{if .Desc}}{{.Desc}}{{else}}推了么：X 发帖任务撮合平台。发布方写好推文出价，接单方用自己的 X 账号发出，平台自动验证，钱由发布方直接转给接单方。{{end}}">
 {{if .NoIndex}}<meta name="robots" content="noindex">{{end}}
+<meta property="og:site_name" content="{{.SiteTitle}}"><meta property="og:type" content="website"><meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="{{block "ogtitle" .}}{{template "title" .}}{{end}}">
+<meta property="og:description" content="{{if .Desc}}{{.Desc}}{{else}}发一条推，赚一笔 U。发布方写好推文出价，你用自己的 X 账号发出去，自动验证，钱直接到你的币安账户。{{end}}">
+<meta property="og:url" content="{{.BaseURL}}{{.Path}}"><meta property="og:image" content="{{.BaseURL}}/static/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{template "ogtitle" .}}"><meta name="twitter:description" content="{{if .Desc}}{{.Desc}}{{else}}发一条推，赚一笔 U。发布方出价，你用自己的 X 账号发出去，自动验证，钱直接到你的币安账户。{{end}}"><meta name="twitter:image" content="{{.BaseURL}}/static/og.png">
+<link rel="manifest" href="/static/manifest.json"><link rel="apple-touch-icon" href="/static/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/static/app.css?v={{.CSSVer}}">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='14' fill='%230D6EFD' stroke='%2314171C' stroke-width='4'/%3E%3Ctext x='32' y='45' font-size='34' font-weight='900' text-anchor='middle' font-family='PingFang SC,Microsoft YaHei,sans-serif' fill='%23FFFFFF'%3E推%3C/text%3E%3C/svg%3E">
 </head>

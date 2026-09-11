@@ -30,6 +30,9 @@ type mePage struct {
 	TaskStats  map[int64]TaskCounts
 	Latest     []Notification
 	ToCheck    []*Submission // 待我核对（点赞/转发）
+	TG         *TGLink       // Telegram 绑定
+	TGBot      string        // 机器人用户名（空 = 未启用）
+	TGCode     string        // 待用的绑定码（生成后 15 分钟内）
 }
 
 // TaskCounts 发布方任务卡上的计数。
@@ -93,12 +96,19 @@ func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	p.Disputes, _ = a.st.DisputesForUser(u.ID, 20)
 	p.Invites, _ = a.st.InvitedCasesFor(u.ID)
 	p.CertNeeded = a.cfg.CertFeeEnabled && u.CertPaidAt == 0
+	p.TGBot = a.tgName()
+	p.TG, _ = a.st.TGLink(u.ID)
+	if p.TGBot != "" && p.TG == nil {
+		p.TGCode = a.st.TGPendingCode(u.ID)
+	}
 	a.render(w, http.StatusOK, "me", p)
 }
 
 type notifPage struct {
 	Base
-	Notes []Notification
+	Notes   []Notification
+	TGBot   string
+	TGBound bool
 }
 
 func (a *App) handleNotifications(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +118,10 @@ func (a *App) handleNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	notes, _ := a.st.Notifications(u.ID, 100)
 	a.st.MarkAllRead(u.ID)
-	p := notifPage{Base: a.base(w, r), Notes: notes}
+	p := notifPage{Base: a.base(w, r), Notes: notes, TGBot: a.tgName()}
+	if l, _ := a.st.TGLink(u.ID); l != nil {
+		p.TGBound = true
+	}
 	p.Unread = 0
 	a.render(w, http.StatusOK, "notifications", p)
 }

@@ -240,6 +240,9 @@ var schema = []string{
 	`CREATE INDEX IF NOT EXISTS idx_ji_user ON jury_invites(user_id, voted_at)`,
 	`CREATE TABLE IF NOT EXISTS jury_votes (case_id INTEGER NOT NULL, juror_id INTEGER NOT NULL, vote TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY(case_id, juror_id))`,
 	`CREATE TABLE IF NOT EXISTS task_votes (task_id INTEGER NOT NULL, user_id INTEGER NOT NULL, vote INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY(task_id,user_id))`,
+	`CREATE TABLE IF NOT EXISTS tg_links (user_id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL, tg_username TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_tg_chat ON tg_links(chat_id)`,
+	`CREATE TABLE IF NOT EXISTS tg_codes (code TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS idx_task_votes_user ON task_votes(user_id, created_at)`,
 	`CREATE TABLE IF NOT EXISTS ip_log (user_id INTEGER NOT NULL, prefix TEXT NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY(user_id, prefix))`,
 }

@@ -38,6 +38,7 @@ type App struct {
 	origin     string
 	fetchSem   chan struct{} // 推文抓取并发闸
 	cssVer     string        // 静态样式内容哈希，做缓存穿透
+	tg         *tgBot        // Telegram 推送（nil = 未配置）
 
 	stop      chan struct{}
 	wg        sync.WaitGroup
@@ -69,7 +70,7 @@ type Base struct {
 	CSSVer    string
 }
 
-var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records", "review"}
+var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records", "review", "adminstats"}
 
 func newApp(cfg *Config) (*App, error) {
 	st, err := openStore(cfg.DBPath)
@@ -104,6 +105,7 @@ func newApp(cfg *Config) (*App, error) {
 		return nil, err
 	}
 	a.routes()
+	a.tg = newTGBot(a)
 	return a, nil
 }
 
@@ -287,6 +289,8 @@ func (a *App) routes() {
 	m.HandleFunc("POST /me/pay/verify", a.handlePayVerify)
 	m.HandleFunc("POST /me/password", a.handlePassword)
 	m.HandleFunc("POST /me/followers", a.handleRefreshFollowers)
+	m.HandleFunc("POST /me/tg/bind", a.handleTGBind)
+	m.HandleFunc("POST /me/tg/unbind", a.handleTGUnbind)
 	m.HandleFunc("POST /me/pay/method", a.handlePayMethodAdd)
 	m.HandleFunc("POST /me/pay/method/del", a.handlePayMethodDel)
 	m.HandleFunc("GET /me/cert", a.handleCertGet)
@@ -330,6 +334,7 @@ func (a *App) routes() {
 	// 管理
 	m.HandleFunc("GET /admin", a.handleAdmin)
 	m.HandleFunc("GET /admin/users", a.handleAdminUsers)
+	m.HandleFunc("GET /admin/stats", a.handleAdminStats)
 	m.HandleFunc("POST /admin/dispute/{code}/{action}", a.handleAdminDispute)
 	m.HandleFunc("POST /admin/tasks/cancel-open", a.handleAdminCancelOpen)
 	m.HandleFunc("POST /admin/user/{id}/{action}", a.handleAdminUser)
@@ -393,6 +398,10 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		b.IsAdmin = a.isAdmin(b.Me)
 		b.Unread = a.st.UnreadCount(b.Me.ID)
 		b.Todo = a.todoCount(b.Me)
+		if b.Me.Followers < 0 && a.lim.allow("followers-bg:"+strconv.FormatInt(b.Me.ID, 10), 1, time.Hour) {
+			me := *b.Me
+			safeGo("followers", func() { a.refreshFollowers(&me, false) })
+		}
 		b.PayDueN = a.st.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status IN ('payable','overdue')`, b.Me.ID)
 		if a.cfg.ReviewEnabled {
 			b.ReviewN = a.st.ReviewPendingFor(b.Me.ID)
@@ -401,6 +410,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 			if v, ok := a.ipTouched.Load(ipk); !ok || b.Now-v.(int64) > 10*60*1000 { // 同用户新网段立刻记（自导自演判定靠它），重复网段 10 分钟一次
 				a.ipTouched.Store(ipk, b.Now)
 				a.st.TouchIP(b.Me.ID, a.ip(r))
+				a.st.db.Exec(`UPDATE users SET last_login_at=? WHERE id=?`, b.Now, b.Me.ID) // "今日在线"按最近活动算，不只按登录
 			}
 		}
 	}
@@ -607,6 +617,7 @@ func hue(key string) int {
 // notify 站内通知（薄封装，便于以后接 Telegram）。
 func (a *App) notify(userID int64, kind, title, body, link string) {
 	a.st.Notify(userID, kind, title, body, link)
+	a.tgPush(userID, title, body, link)
 }
 
 func (a *App) redirectBack(w http.ResponseWriter, r *http.Request, def string) {

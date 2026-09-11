@@ -5,12 +5,12 @@
     <span class="eyebrow">X 发帖任务 · 平台不托管资金</span>
     <h1>发一条推，<span class="hl">赚一笔 U</span>。</h1>
     <p>发布方写好推文、出好价；你用自己的 X 账号发出去，回填链接自动验证；钱由发布方<b>直接</b>转到你的币安账户。赖账的，上榜。</p>
-    {{if not .Me}}<div class="btns" style="margin-top:6px"><a class="btn" href="/register">用 X 账号注册</a><a class="btn sec" href="/rules">先看规则</a></div>{{else}}<div class="btns" style="margin-top:6px"><a class="btn" href="/new">发一单</a><a class="btn sec" href="/me">我的待办{{if .Todo}}（{{.Todo}}）{{end}}</a></div>{{end}}
+    {{if not .Me}}<div class="btns" style="margin-top:6px"><a class="btn" href="/register">用 X 账号注册</a><a class="btn sec" href="/rules">先看规则</a></div>{{else}}<div class="btns" style="margin-top:6px"><a class="btn" href="/new">发一单{{if .Active24h}} · {{.Active24h}} 人在等{{end}}</a><a class="btn sec" href="/me">我的待办{{if .Todo}}（{{.Todo}}）{{end}}</a></div>{{end}}
   </div>
   <div class="sticker">
     <span class="eyebrow">今日看板</span>
     <div class="big">{{.Counts.Open}} <small style="font:600 12px var(--mono)">单可接</small></div>
-    <ul><li>累计完成 {{.Counts.Paid}} 单</li><li>已支付 {{amt .PaidSum}} U</li><li>{{.Counts.Users}} 位用户</li></ul>
+    <ul><li>累计完成 {{.Counts.Paid}} 单</li><li>已支付 {{amt .PaidSum}} U</li><li>{{.Counts.Users}} 位用户 · {{.Active24h}} 人今日在线</li></ul>
   </div>
 </div>
 {{if and .Me .ReviewN}}<a class="warnbar" href="/review" style="display:block"><svg class="ic" aria-hidden="true"><use href="#i-vote"/></svg>有 {{.ReviewN}} 个新任务等你审核，通过才会上线 →</a>{{end}}

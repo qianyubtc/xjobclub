@@ -42,7 +42,7 @@
         <div class="hint">每个人在同一个任务上只能完成一次；单价 × 名额不能超过可用敞口</div></div>
       <h3 class="fs" style="grid-column:1/-1">时间</h3>
       <div><label for="claim_ttl">接单时限</label><select id="claim_ttl" name="claim_ttl">{{range $v := .TTLs}}<option value="{{$v}}" {{if eq (print $v) $.F.ClaimTTL}}selected{{end}}>{{durMin $v}}</option>{{end}}</select><div class="hint">接单后多久内必须回填链接</div></div>
-      <div id="retWrap"><label for="retention">留存时长</label><select id="retention" name="retention">{{range $v := .Cfg.RetentionOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.Retention}}selected{{end}}>{{if eq $v 0}}无（发完立刻可付，对方也可立刻删）{{else}}{{dur $v}}{{end}}</option>{{end}}</select></div>
+      <div id="retWrap"><label for="retention">留存时长</label><select id="retention" name="retention">{{range $v := .Cfg.RetentionOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.Retention}}selected{{end}}>{{if eq $v 0}}无（发完立刻可付，对方也可立刻删）{{else}}{{dur $v}}{{end}}</option>{{end}}</select><div class="hint" id="retHint"></div></div>
       <div><label for="pay_window">付款时限</label><select id="pay_window" name="pay_window">{{range $v := .Cfg.PayWindowOptions}}<option value="{{$v}}" {{if eq (print $v) $.F.PayWindow}}selected{{end}}>{{dur $v}}</option>{{end}}</select><div class="hint">越短越吸引接单方；逾期会被冻结</div></div>
       <div><label for="deadline">任务截止（天）</label><input id="deadline" name="deadline" inputmode="numeric" value="{{.F.Deadline}}"><div class="hint">1–{{.Cfg.DeadlineMax}} 天，到期停止接单</div></div>
       <h3 class="fs" style="grid-column:1/-1">接单要求</h3>
@@ -51,7 +51,7 @@
     </div>
     {{end}}
     <button class="btn" type="submit" style="margin-top:18px" {{if and .Block (not .F.EditCode)}}disabled{{end}}>{{if .F.EditCode}}保存{{else}}发布{{end}}</button>
-    <div class="hint" style="margin-top:10px">{{if .Cfg.ReviewEnabled}}发布后先进入社区审核（约 {{dur .Cfg.ReviewWindowH}}{{if .Cfg.ReviewTrustedPaid}}，网关核销付款 ≥ {{.Cfg.ReviewTrustedPaid}} 单且无逾期的发布方免审{{end}}），通过后自动上线并通知你。{{end}}发布即承诺：接单方推文验证并通过留存复检后，在付款时限内付款。逾期冻结、核实赖账进黑名单榜。</div>
+    <div class="hint" style="margin-top:10px">{{if .Active24h}}现在有 <b>{{.Active24h}}</b> 位用户 24 小时内活跃、在等单。{{end}}{{if .Cfg.ReviewEnabled}}发布后先进入社区审核（约 {{dur .Cfg.ReviewWindowH}}{{if .Cfg.ReviewTrustedPaid}}，网关核销付款 ≥ {{.Cfg.ReviewTrustedPaid}} 单且无逾期的发布方免审{{end}}），通过后自动上线并通知你。{{end}}发布即承诺：接单方推文验证并通过留存复检后，在付款时限内付款。逾期冻结、核实赖账进黑名单榜。</div>
   </form>
 </section>
 </div>
@@ -68,8 +68,9 @@
     if(one){prev=slots.value!=='1'?slots.value:prev;slots.value='1';wrap.hidden=true}else{slots.value=prev||'5';wrap.hidden=false;slots.focus()}})}
   // 接单要求实时提示：当前有多少用户满足
   (function(){var d=document.getElementById('min_days'),f=document.getElementById('min_followers'),h=document.getElementById('eligHint');if(!d||!f||!h)return;var tm;
-    function upd(){clearTimeout(tm);tm=setTimeout(function(){fetch('/new/eligible?days='+encodeURIComponent(d.value||0)+'&fans='+encodeURIComponent(f.value||0),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(!j||!j.total){h.textContent='';return}var pct=Math.round(j.n*100/j.total);h.textContent='· 当前约 '+j.n+' / '+j.total+' 位用户满足这两项要求';h.classList.toggle('bad',pct<10)}).catch(function(){})},350)}
+    function upd(){clearTimeout(tm);tm=setTimeout(function(){fetch('/new/eligible?days='+encodeURIComponent(d.value||0)+'&fans='+encodeURIComponent(f.value||0),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(!j||!j.total){h.textContent='';return}var pct=Math.round(j.n*100/j.total);var adv=pct<20?'。门槛偏高：够格的人太少会很难接满，建议降低粉丝数或账号年龄要求':(pct<50?'。约一半人被门槛挡在外面，接满会慢一些':'');h.textContent='· 当前约 '+j.n+' / '+j.total+' 位用户满足这两项要求'+adv;h.classList.toggle('bad',pct<20)}).catch(function(){})},350)}
     d.addEventListener('input',upd);f.addEventListener('input',upd);upd()})();
+  (function(){var r=document.getElementById('retention'),h=document.getElementById('retHint');if(!r||!h)return;function u(){var v=parseInt(r.value,10)||0;h.textContent=v===0?'无留存：验证通过立刻进待付款，最受接单方欢迎；但对方发完就删你也没法追责。':(v>=72?'留存 '+Math.round(v/24)+' 天：接单方要等留存结束才拿钱，接单意愿会明显下降，建议提高单价或缩短留存；你随时可以在记录页「现在就付」提前结算。':'留存 '+v+' 小时后复检通过才进入待付款；等不及可以在记录页提前付款。')}r.addEventListener('change',u);u()})();
   var pseg=document.getElementById('priceSeg');
   function applyPrice(m){var cpm=m==='cpm';var fw=document.getElementById('fixedWrap'),cw=document.getElementById('cpmWrap'),rw=document.getElementById('reward'),cp=document.getElementById('cpm'),cap=document.getElementById('cap_amt');
     if(fw)fw.hidden=cpm;if(cw)cw.hidden=!cpm;if(rw)rw.required=!cpm;if(cp)cp.required=cpm;if(cap)cap.required=cpm;

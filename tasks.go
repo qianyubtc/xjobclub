@@ -147,20 +147,21 @@ func (a *App) refreshFollowers(u *User, force bool) {
 
 type indexPage struct {
 	Base
-	Tasks   []*Task
-	Owners  map[int64]*User
-	Stats   map[int64]PubStats
-	Filter  TaskFilter
-	Total   int64
-	Page    int
-	Pages   int
-	MinU    string
-	Retent  string
-	Kind    string
-	Sort    string
-	Counts  struct{ Users, Open, Paid int64 }
-	PaidSum int64
-	Recent  []recentDone
+	Tasks     []*Task
+	Owners    map[int64]*User
+	Stats     map[int64]PubStats
+	Filter    TaskFilter
+	Total     int64
+	Page      int
+	Pages     int
+	MinU      string
+	Retent    string
+	Kind      string
+	Sort      string
+	Counts    struct{ Users, Open, Paid int64 }
+	Active24h int64 // 24 小时内活跃的用户数（给发布方看的"多少人在等单"）
+	PaidSum   int64
+	Recent    []recentDone
 }
 
 type recentDone struct {
@@ -206,6 +207,7 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	p.Counts.Users = a.st.count(`SELECT COUNT(*) FROM users`)
+	p.Active24h = a.st.count(`SELECT COUNT(*) FROM users WHERE last_login_at > ?`, ms()-dayMs)
 	p.Counts.Open = a.st.count(`SELECT COUNT(*) FROM tasks WHERE status='open' AND deadline_at>? AND slots_total>(SELECT COUNT(*) FROM submissions x WHERE x.task_id=tasks.id AND x.status NOT IN ('expired','void'))`, ms()) // 与大厅列表同口径：名额已满的不算「可接」
 	p.Counts.Paid = a.st.count(`SELECT COUNT(*) FROM submissions WHERE status='paid'`)
 	p.PaidSum = a.st.sum(`SELECT SUM(paid_amount_e8) FROM submissions WHERE status='paid'`)
@@ -262,6 +264,7 @@ type newPage struct {
 	TTLs       []int64
 	CertNeeded bool
 	Kinds      []kindOpt
+	Active24h  int64
 }
 
 type kindOpt struct{ V, N, D string }
@@ -290,7 +293,7 @@ func (a *App) newPageData(w http.ResponseWriter, r *http.Request, u *User, f new
 	if !containsInt(ttls, a.cfg.ClaimTTLDefault) {
 		ttls = append(ttls, a.cfg.ClaimTTLDefault)
 	}
-	return newPage{Base: a.base(w, r), Kinds: kindOpts, F: f, Err: errMsg, Block: a.canPublish(u, st), Tier: tier, Stats: st, Cfg: a.cfg, Exposure: st.ExposureE8, Remaining: rem, TTLs: ttls, CertNeeded: a.cfg.CertFeeEnabled && u.CertPaidAt == 0}
+	return newPage{Base: a.base(w, r), Kinds: kindOpts, F: f, Err: errMsg, Block: a.canPublish(u, st), Tier: tier, Active24h: a.st.count(`SELECT COUNT(*) FROM users WHERE last_login_at > ?`, ms()-dayMs), Stats: st, Cfg: a.cfg, Exposure: st.ExposureE8, Remaining: rem, TTLs: ttls, CertNeeded: a.cfg.CertFeeEnabled && u.CertPaidAt == 0}
 }
 
 func (a *App) handleNewGet(w http.ResponseWriter, r *http.Request) {
@@ -570,6 +573,8 @@ type taskPage struct {
 	OwnerTier   Tier
 	Mine        *Submission // 我在这个任务上的进行中记录
 	Block       string      // 不能接单的原因
+	ShareText   string      // 分享到 X 的文案（含链接）
+	PayByMs     int64       // 现在接单最晚约何时到手
 	Review      *ReviewInfo // 审核中 / 未通过时的投票信息
 	VoteReasons []string
 	IsOwner     bool
@@ -614,6 +619,19 @@ func (a *App) handleTask(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	p := taskPage{Base: a.base(w, r), T: t, Workers: map[int64]*User{}}
+	if t.Status == "open" {
+		price := fmtE8(t.RewardE8) + " U / " + t.Unit()
+		if t.CPM() {
+			price = fmtE8(t.CpmE8) + " U / 千浏览"
+		}
+		p.Desc = fmt.Sprintf("%s任务 · %s · 剩 %d 个名额 · 截止 %s · 平台不托管，发布方直接付款", t.KindText(), price, t.Left(), fmtDate(t.DeadlineAt))
+		p.ShareText = fmt.Sprintf("「%s」%s，%s，还剩 %d 个名额，来推了么接单 👉 %s%s", t.Title, t.KindText()+"任务", price, t.Left(), strings.TrimRight(a.cfg.BaseURL, "/"), t.Path())
+	}
+	if t.Manual() {
+		p.PayByMs = ms() + t.ClaimTTLMin*60*1000 + checkWindowMs + t.PayWindowH*hourMs
+	} else {
+		p.PayByMs = ms() + t.ClaimTTLMin*60*1000 + t.RetentionH*hourMs + t.PayWindowH*hourMs
+	}
 	if t.Status == TReview || t.Status == TRejected {
 		p.NoIndex = true
 		p.Review = a.reviewInfo(t, p.Me)

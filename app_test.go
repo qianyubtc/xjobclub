@@ -2450,3 +2450,170 @@ func TestTweetPayloadQuirks(t *testing.T) {
 	t6 := alice.publish(taskForm(url.Values{"content1": {"引用一下这条好帖"}, "slots": {"1"}}))
 	verifyOK(t6, mockTweet{ID: "8708", Text: t6.Contents[0] + " https://t.co/q1", UserID: "8602", Handle: "bob", URLs: [][2]string{{"https://t.co/q1", "https://x.com/someone/status/777"}}, QuotedID: "777"})
 }
+
+// ---- Telegram 机器人：绑定、推送、解绑 ----
+
+type tgMock struct {
+	mu      sync.Mutex
+	srv     *httptest.Server
+	pending []map[string]any
+	nextID  int64
+	sent    map[int64][]string
+}
+
+func newTGMock() *tgMock {
+	m := &tgMock{sent: map[int64][]string{}, nextID: 100}
+	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		if !strings.Contains(r.URL.Path, "/bottest-token/") {
+			w.WriteHeader(401)
+			return
+		}
+		r.ParseForm()
+		switch method {
+		case "getMe":
+			fmt.Fprint(w, `{"ok":true,"result":{"id":1,"username":"tuilme_test_bot"}}`)
+		case "getUpdates":
+			off, _ := strconv.ParseInt(r.Form.Get("offset"), 10, 64)
+			m.mu.Lock()
+			out := []map[string]any{}
+			for _, u := range m.pending {
+				if u["update_id"].(int64) >= off {
+					out = append(out, u)
+				}
+			}
+			m.pending = m.pending[:0]
+			m.mu.Unlock()
+			if len(out) == 0 {
+				time.Sleep(30 * time.Millisecond)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": out})
+		case "sendMessage":
+			chat, _ := strconv.ParseInt(r.Form.Get("chat_id"), 10, 64)
+			m.mu.Lock()
+			m.sent[chat] = append(m.sent[chat], r.Form.Get("text"))
+			m.mu.Unlock()
+			fmt.Fprint(w, `{"ok":true,"result":{}}`)
+		default:
+			fmt.Fprint(w, `{"ok":false,"description":"unknown method"}`)
+		}
+	}))
+	return m
+}
+
+// push 模拟用户给机器人发消息；chatID 为负数表示群聊（Telegram 的群 ID 是负的）。
+func (m *tgMock) push(chatID int64, username, text string) {
+	typ := "private"
+	if chatID < 0 {
+		typ = "group"
+	}
+	m.mu.Lock()
+	m.nextID++
+	m.pending = append(m.pending, map[string]any{"update_id": m.nextID, "message": map[string]any{"text": text, "chat": map[string]any{"id": chatID, "type": typ}, "from": map[string]any{"username": username}}})
+	m.mu.Unlock()
+}
+
+func (m *tgMock) sentTo(chatID int64) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.sent[chatID]...)
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for i := 0; i < 250; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %s", what)
+}
+
+func TestTelegramBind(t *testing.T) {
+	tg := newTGMock()
+	defer tg.srv.Close()
+	e := newEnv(t, "TG_BOT_TOKEN=test-token\nTG_API_BASE="+tg.srv.URL+"\n")
+	e.a.startTG()
+	alice := e.browser("alice")
+	au := alice.register("alice", "8801")
+	waitFor(t, "getMe", func() bool { return e.a.tgName() == "tuilme_test_bot" })
+	if _, body := alice.get("/me?tab=settings"); !strings.Contains(body, "绑定 Telegram") || !strings.Contains(body, "@tuilme_test_bot") {
+		t.Fatal("settings should offer the bind button")
+	}
+	reLink := regexp.MustCompile(`https://t\.me/tuilme_test_bot\?start=([A-Z0-9]+)`)
+	bindCode := func() string {
+		t.Helper()
+		if resp, _ := alice.post("/me/tg/bind", nil); resp.StatusCode != 302 || !strings.HasPrefix(resp.Header.Get("Location"), "/me?tab=settings") {
+			t.Fatalf("bind should return to settings: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+		}
+		_, body := alice.get("/me?tab=settings")
+		m := reLink.FindStringSubmatch(body)
+		if m == nil || !strings.Contains(body, "/start "+m[1]) {
+			t.Fatalf("settings should show the deep link and the manual command: %s", snippet(body))
+		}
+		return m[1]
+	}
+	code := bindCode()
+	// 群里发的 /start 不算
+	tg.push(-900, "grp", "/start "+code)
+	time.Sleep(150 * time.Millisecond)
+	if l, _ := e.a.st.TGLink(au.ID); l != nil {
+		t.Fatal("group chats must not bind")
+	}
+	tg.push(555, "alice_tg", "/start "+code)
+	waitFor(t, "bind", func() bool {
+		l, _ := e.a.st.TGLink(au.ID)
+		return l != nil && l.ChatID == 555 && l.Username == "alice_tg"
+	})
+	waitFor(t, "welcome", func() bool { m := tg.sentTo(555); return len(m) == 1 && strings.Contains(m[0], "绑定成功") })
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%已绑定 Telegram%'`, au.ID); n != 1 {
+		t.Fatal("binding should leave an in-app notice")
+	}
+	// 站内通知同步推送，带绝对链接；HTML 转义
+	e.a.notify(au.ID, "pay", "有一条记录待付款", "测试正文 <b>", "/s/S-TEST?a=1&b=2")
+	waitFor(t, "push", func() bool {
+		m := tg.sentTo(555)
+		return len(m) == 2 && strings.Contains(m[1], "<b>有一条记录待付款</b>") && strings.Contains(m[1], "&lt;b&gt;") && strings.Contains(m[1], "http://test.local/s/S-TEST?a=1&amp;b=2")
+	})
+	if _, body := alice.get("/me?tab=settings"); !strings.Contains(body, "已绑定") || !strings.Contains(body, "@alice_tg") {
+		t.Fatal("settings should show the binding")
+	}
+	// 绑定码一次性
+	tg.push(556, "someone", "/start "+code)
+	waitFor(t, "reused code refused", func() bool { m := tg.sentTo(556); return len(m) == 1 && strings.Contains(m[0], "无效") })
+	// /stop 解绑；再绑一次后用网页解绑按钮
+	tg.push(555, "alice_tg", "/stop")
+	waitFor(t, "stop", func() bool { l, _ := e.a.st.TGLink(au.ID); return l == nil })
+	code2 := bindCode()
+	tg.push(557, "alice_tg", "/start "+code2)
+	waitFor(t, "rebind", func() bool { l, _ := e.a.st.TGLink(au.ID); return l != nil && l.ChatID == 557 })
+	waitFor(t, "rebind welcome", func() bool { return len(tg.sentTo(557)) == 1 })
+	if resp, _ := alice.post("/me/tg/unbind", nil); resp.StatusCode != 302 {
+		t.Fatal("unbind failed")
+	}
+	if l, _ := e.a.st.TGLink(au.ID); l != nil {
+		t.Fatal("should be unbound")
+	}
+	e.a.notify(au.ID, "pay", "解绑后不该推送", "", "/me")
+	time.Sleep(150 * time.Millisecond)
+	if m := tg.sentTo(557); len(m) != 1 {
+		t.Fatalf("no push after unbind, got %v", m)
+	}
+}
+
+// ---- 运营看板 ----
+
+func TestAdminStatsPage(t *testing.T) {
+	e := newEnv(t, "ADMIN_HANDLES=boss\n")
+	boss, bob := e.browser("boss"), e.browser("bob")
+	boss.register("boss", "8901")
+	bob.register("bob", "8902")
+	if resp, _ := bob.get("/admin/stats"); resp.StatusCode == 200 {
+		t.Fatal("stats must be admin only")
+	}
+	resp, body := boss.get("/admin/stats")
+	if resp.StatusCode != 200 || !strings.Contains(body, "运营看板") || !strings.Contains(body, "近 14 天") || strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
+		t.Fatalf("stats page: %d %s", resp.StatusCode, snippet(body))
+	}
+}

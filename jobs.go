@@ -10,6 +10,7 @@ import (
 
 // startJobs 进程内定时任务：每分钟一轮，小时/天级任务按上次执行时间判断。
 func (a *App) startJobs() {
+	a.startTG()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()

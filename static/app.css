@@ -384,3 +384,11 @@ details.fold summary{font-size:14px}
 .paybar b{font-weight:800}.paybar span{margin-left:auto;font-size:13px;opacity:.85;white-space:nowrap}
 .paybar:hover{text-decoration:none;transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--ink)}
 @media (max-width:640px){.paybar{flex-wrap:wrap}.paybar span{margin-left:auto}}
+/* 任务流程时间线 */
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
+.flow span{padding:4px 9px;border:1.5px dashed var(--line2);border-radius:999px;background:var(--card)}
+.flow span.end{border-style:solid;border-color:var(--ink);color:var(--ink)}
+.flow i{width:14px;height:1.5px;background:var(--line2);flex:none}
+.btns.share{margin-top:8px}
+@media (max-width:640px){.flow i{display:none}.flow span{font-size:12px}}
+.tbl table.nowrap td,.tbl table.nowrap th{white-space:nowrap}

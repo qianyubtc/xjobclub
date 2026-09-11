@@ -27,11 +27,13 @@ func main() {
 	if *cancelOpen != "" {
 		n := app.cancelOpenTasks(*cancelOpen, 0)
 		log.Printf("[info] 已撤回 %d 个在售任务（已接记录保留）", n)
+		app.flushTG()
 		app.Close()
 		return
 	}
 	if *resolveSpec != "" {
 		msg, err := app.resolveDisputeSpec(*resolveSpec)
+		app.flushTG()
 		app.Close()
 		if err != nil {
 			log.Fatalf("裁决失败: %v", err)
