@@ -2148,16 +2148,11 @@ func TestAutoConfirm(t *testing.T) {
 			t.Fatal("late dispute must be refused")
 		}
 	}
-	// 4a) 逾期过的记录不自动完成：冻结中的发布方假标记 + 对方沉默不能变成解冻
+	// 4a) 逾期过的记录不自动完成：冻结中的发布方假标记 + 对方沉默不能变成解冻（先接单标记，逾期历史最后再补）
 	frank := e.browser("frank")
 	frank.register("frank", "7506")
 	frank.setUID("42006")
 	x6 := mark(frank, "7506", "7606", "452021922068888816")
-	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=?, overdue_at=? WHERE id=?`, ms()-25*hourMs, ms()-30*hourMs, x6.ID)
-	e.a.runJobs()
-	if nx, _ := e.a.st.GetSubByID(x6.ID); nx.Status != SAwait {
-		t.Fatalf("record with overdue history must wait for explicit confirmation: %s", nx.Status)
-	}
 	// 4b) 已举报过的记录、申诉中的记录不自动完成（申诉会冻结发布方任务，放在接单用例之后）
 	eve := e.browser("eve")
 	eve.register("eve", "7505")
@@ -2181,6 +2176,12 @@ func TestAutoConfirm(t *testing.T) {
 	}
 	if d5, _ := e.a.st.OpenDisputeForSub(x5.ID); d5 == nil {
 		t.Fatal("dispute must stay open")
+	}
+	// 4a 续：给 frank 的记录补上逾期历史（会让发布方进入冻结，所以放在所有接单之后）
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=?, overdue_at=? WHERE id=?`, ms()-25*hourMs, ms()-30*hourMs, x6.ID)
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x6.ID); nx.Status != SAwait {
+		t.Fatalf("record with overdue history must wait for explicit confirmation: %s", nx.Status)
 	}
 	// 5) 事后 B 类申诉成立：撤销完成、记录转逾期、发布方上黑名单（放最后：会冻结并关闭发布方的任务）
 	if resp, _ := bob.post("/s/"+x.Code+"/dispute", url.Values{"type": {"B"}, "text": {"币安支付记录里没有这笔转账"}}); resp.StatusCode != 302 {
