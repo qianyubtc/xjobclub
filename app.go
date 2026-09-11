@@ -412,6 +412,14 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 				a.st.TouchIP(b.Me.ID, a.ip(r))
 				a.st.db.Exec(`UPDATE users SET last_login_at=? WHERE id=?`, b.Now, b.Me.ID) // "今日在线"按最近活动算，不只按登录
 			}
+			if dev := deviceID(w, r, a); dev != "" {
+				if dk := "d|" + strconv.FormatInt(b.Me.ID, 10) + "|" + dev; true {
+					if v, ok := a.ipTouched.Load(dk); !ok || b.Now-v.(int64) > 10*60*1000 {
+						a.ipTouched.Store(dk, b.Now)
+						a.st.TouchDevice(b.Me.ID, dev)
+					}
+				}
+			}
 		}
 	}
 	if w != nil {
@@ -511,6 +519,27 @@ func replyJSON(w http.ResponseWriter, status int, v map[string]any) {
 
 func (a *App) setCookie(w http.ResponseWriter, name, val string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: val, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode})
+}
+
+// deviceID 浏览器标识：首访发一枚一年期随机 cookie，只用来判"两个账号是不是同一台设备"（自导自演），不做别的。
+func deviceID(w http.ResponseWriter, r *http.Request, a *App) string {
+	if v := cookieVal(r, "tdev"); len(v) == 32 {
+		ok := true
+		for _, c := range v {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return v
+		}
+	}
+	if w == nil {
+		return "" // 错误页等无响应写入器的场合：不发新 cookie
+	}
+	a.setCookie(w, "tdev", randHex(16), 365*24*3600)
+	return "" // 这次先发 cookie，下次请求回显了再记（不回显 cookie 的客户端不会每次都写库）
 }
 
 func cookieVal(r *http.Request, name string) string {

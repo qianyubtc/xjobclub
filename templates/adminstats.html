@@ -56,7 +56,9 @@
     <div><b class="num">{{index .Risk "blacklist"}}</b><span>黑名单在榜</span></div>
     <div><b class="num">{{index .Risk "disputes_open"}}</b><span>未结申诉</span></div>
     <div><b class="num">{{index .Risk "self_deal"}}</b><span>疑似自导自演记录</span></div>
-    <div><b class="num">{{index .Risk "shared_prefix"}}</b><span>≥3 人共用的网段</span></div>
+    <div><b class="num">{{index .Risk "shared_ip"}}</b><span>多人共用的 IP（精确）</span></div>
+    <div><b class="num">{{index .Risk "shared_device"}}</b><span>多人共用的浏览器</span></div>
+    <div><b class="num">{{index .Risk "shared_prefix"}}</b><span>≥3 人共用的网段（仅参考）</span></div>
     <div><b class="num">{{index .Risk "followers_unknown"}}</b><span>粉丝数读不到</span></div>
     <div><b class="num">{{index .Risk "x_young"}}</b><span>X 账号不满 30 天</span></div>
   </div>

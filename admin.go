@@ -315,6 +315,12 @@ func (a *App) handleAdminSub(w http.ResponseWriter, r *http.Request) {
 	action := r.PathValue("action")
 	var err error
 	switch action {
+	case "selfdeal":
+		// 误判（同一 VPN 出口 / 校园网）或漏判：管理员手动翻转，只影响信用计数
+		nv := 1 - x.SelfDeal
+		if _, err = a.st.db.Exec(`UPDATE submissions SET self_deal=?, updated_at=? WHERE id=?`, nv, ms(), x.ID); err == nil {
+			a.st.Audit(admin.ID, "sub.selfdeal", "submission", x.ID, map[string]any{"self_deal": nv}, a.ip(r))
+		}
 	case "void":
 		if ok, _ := a.st.SetVoid(x.ID, []string{SClaimed, SSubmit, SChecking, SVerified, SPayable, SOverdue, SDisputed, SAwait}, "管理员作废："+reason); !ok {
 			err = ErrState

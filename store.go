@@ -245,6 +245,10 @@ var schema = []string{
 	`CREATE TABLE IF NOT EXISTS tg_codes (code TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
 	`CREATE INDEX IF NOT EXISTS idx_task_votes_user ON task_votes(user_id, created_at)`,
 	`CREATE TABLE IF NOT EXISTS ip_log (user_id INTEGER NOT NULL, prefix TEXT NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY(user_id, prefix))`,
+	`CREATE TABLE IF NOT EXISTS ip_seen (user_id INTEGER NOT NULL, ip TEXT NOT NULL, first_seen INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL, PRIMARY KEY(user_id, ip))`,
+	`CREATE INDEX IF NOT EXISTS idx_ip_seen_ip ON ip_seen(ip)`,
+	`CREATE TABLE IF NOT EXISTS device_seen (user_id INTEGER NOT NULL, device TEXT NOT NULL, last_seen INTEGER NOT NULL, PRIMARY KEY(user_id, device))`,
+	`CREATE INDEX IF NOT EXISTS idx_device_seen ON device_seen(device)`,
 }
 
 func openStore(path string) (*Store, error) {
@@ -472,6 +476,28 @@ func (s *Store) TouchIP(userID int64, ip string) {
 		return
 	}
 	s.db.Exec(`INSERT INTO ip_log(user_id,prefix,last_seen) VALUES(?,?,?) ON CONFLICT(user_id,prefix) DO UPDATE SET last_seen=excluded.last_seen`, userID, ipPrefix(ip), ms())
+	s.db.Exec(`INSERT INTO ip_seen(user_id,ip,first_seen,last_seen) VALUES(?,?,?,?) ON CONFLICT(user_id,ip) DO UPDATE SET last_seen=excluded.last_seen`, userID, ip, ms(), ms())
+}
+
+// TouchDevice 记录用户用过的浏览器标识（首访发的一年期 cookie）。
+func (s *Store) TouchDevice(userID int64, device string) {
+	if userID <= 0 || device == "" {
+		return
+	}
+	s.db.Exec(`INSERT INTO device_seen(user_id,device,last_seen) VALUES(?,?,?) ON CONFLICT(user_id,device) DO UPDATE SET last_seen=excluded.last_seen`, userID, device, ms())
+}
+
+// SharedExactIP 两个用户 30 天内是否用过同一个 IP（精确到地址，不是网段：运营商 NAT 下同网段太常见），
+// 且使用时段在 48 小时内有重叠（同一台手机换号是几分钟的事；VPN 出口一个月里先后被两个人用过不算）。
+func (s *Store) SharedExactIP(a, b int64) bool {
+	since := ms() - 30*dayMs
+	return s.count(`SELECT COUNT(*) FROM ip_seen x JOIN ip_seen y ON x.ip=y.ip WHERE x.user_id=? AND y.user_id=? AND x.last_seen>? AND y.last_seen>?
+		AND x.first_seen < y.last_seen+172800000 AND y.first_seen < x.last_seen+172800000`, a, b, since, since) > 0
+}
+
+// SharedDevice 两个用户 30 天内是否用过同一个浏览器。
+func (s *Store) SharedDevice(a, b int64) bool {
+	return s.count(`SELECT COUNT(*) FROM device_seen x JOIN device_seen y ON x.device=y.device WHERE x.user_id=? AND y.user_id=? AND x.last_seen>? AND y.last_seen>?`, a, b, ms()-30*dayMs, ms()-30*dayMs) > 0
 }
 
 // SharedIP 两个用户 30 天内是否用过同一 IP 段。

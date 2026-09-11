@@ -18,6 +18,7 @@
     {{if .X.VoidReason}}<span class="k">作废原因</span><span class="v">{{.X.VoidReason}}</span>{{end}}
   </div>
   {{if .Err}}<div class="notice bad">{{.Err}}</div>{{end}}
+  {{if .X.SelfDeal}}<div class="notice warn">这条记录<b>不计信用</b>：双方 30 天内同一时段用过同一个 IP，或用过同一个浏览器，或同一个付款账户。付款、留存、完成都不受影响；确实是误判（同一个校园网 / VPN 出口）可以联系管理员调整。</div>{{end}}
   {{if and .IsOwner (or .CanPay .CanMark)}}<div class="btns" style="margin-top:12px"><a class="btn" href="#pay">去付款 {{.Amount}} U ↓</a></div>{{end}}
   {{if and (eq .X.Status "claimed") .X.LastError}}<div class="notice bad">上次验证未通过：{{.X.LastError}}<br><span class="small">已用 {{.X.VerifyAttempts}}/{{.Cfg.VerifyAttempts}} 次提交机会</span></div>{{end}}
   {{if and (eq .X.Status "claimed") .X.CheckRejects}}<div class="notice bad">发布方核对后没有看到你的{{.T.DoneVerb}}{{if .X.CheckNote}}：{{.X.CheckNote}}{{end}}<br><span class="small">请确认是用{{with .Worker}} @{{.Handle}}{{end}} 完成的，再重新提交核对；已退回 {{.X.CheckRejects}} 次，第二次退回将作废。</span></div>{{end}}
@@ -152,6 +153,7 @@
 {{if .IsAdmin}}<section class="card"><h2 style="margin-top:0">管理员操作</h2><div class="btns">
   <form method="post" action="/admin/sub/{{.X.Code}}/void" data-confirm="作废这条记录？"><input type="hidden" name="reason" value="管理员"><button class="btn danger sm">作废</button></form>
   <form method="post" action="/admin/sub/{{.X.Code}}/paid" data-confirm="按已付完成？"><button class="btn sec sm">置为已完成</button></form>
+  <form method="post" action="/admin/sub/{{.X.Code}}/selfdeal" data-confirm="{{if .X.SelfDeal}}取消自导自演标记，这条记录重新计入信用？{{else}}标记为自导自演（不计信用）？{{end}}"><button class="btn sec sm">{{if .X.SelfDeal}}取消自导自演标记{{else}}标为自导自演{{end}}</button></form>
   {{if eq .X.Status "defaulted"}}<form method="post" action="/admin/sub/{{.X.Code}}/repaid"><button class="btn sec sm">登记已补付</button></form>{{end}}
   <form method="post" action="/admin/sub/{{.X.Code}}/verify" class="row"><input name="tweet_url" placeholder="推文链接" style="width:260px"><button class="btn sec sm">强制通过验证</button></form>
 </div></section>{{end}}

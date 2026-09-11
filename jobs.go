@@ -54,6 +54,12 @@ func (a *App) runJobs() {
 	last, _ := a.st.GetMeta("last_hourly")
 	if lastMs := atoi64(last); now-lastMs >= hourMs {
 		a.st.SetMeta("last_hourly", fmt.Sprint(now))
+		a.ipTouched.Range(func(k, v any) bool { // 节流表只需要最近 10 分钟，超过 1 小时的键清掉，别跟着进程一直长
+			if t, ok := v.(int64); ok && now-t > hourMs {
+				a.ipTouched.Delete(k)
+			}
+			return true
+		})
 		a.checkGatewayHealth()
 		since := lastMs
 		if since == 0 || now-since > 7*dayMs {
@@ -69,6 +75,8 @@ func (a *App) runJobs() {
 		a.st.db.Exec(`DELETE FROM tweet_cache WHERE fetched_at<? AND tweet_id NOT IN (SELECT tweet_id FROM submissions WHERE tweet_id<>'') AND tweet_id NOT IN (SELECT reg_tweet_id FROM users WHERE reg_tweet_id<>'')`, now-180*dayMs)
 		a.st.db.Exec(`DELETE FROM notifications WHERE created_at<?`, now-90*dayMs)
 		a.st.db.Exec(`DELETE FROM ip_log WHERE last_seen<?`, now-90*dayMs)
+		a.st.db.Exec(`DELETE FROM ip_seen WHERE last_seen<?`, now-90*dayMs)
+		a.st.db.Exec(`DELETE FROM device_seen WHERE last_seen<?`, now-90*dayMs)
 		a.backup()
 	}
 }

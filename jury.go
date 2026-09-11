@@ -44,7 +44,7 @@ func (a *App) inviteRound(caseID int64, d *Dispute, round int64) {
 	}
 	var picked []int64
 	for _, id := range cands {
-		if a.st.SharedIP(id, d.OpenerID) || a.st.SharedIP(id, d.AgainstID) {
+		if a.st.SharedIP(id, d.OpenerID) || a.st.SharedIP(id, d.AgainstID) || a.st.SharedDevice(id, d.OpenerID) || a.st.SharedDevice(id, d.AgainstID) {
 			continue
 		}
 		picked = append(picked, id)

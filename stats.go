@@ -129,6 +129,8 @@ func (a *App) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	p.Risk["overdue"] = s.count(`SELECT COUNT(*) FROM submissions WHERE status='overdue'`)
 	p.Risk["followers_unknown"] = s.count(`SELECT COUNT(*) FROM users WHERE followers<0`)
 	p.Risk["self_deal"] = s.count(`SELECT COUNT(*) FROM submissions WHERE self_deal=1`)
+	p.Risk["shared_ip"] = s.count(`SELECT COUNT(*) FROM (SELECT ip FROM ip_seen WHERE last_seen>? GROUP BY ip HAVING COUNT(DISTINCT user_id)>=2)`, now-30*dayMs)
+	p.Risk["shared_device"] = s.count(`SELECT COUNT(*) FROM (SELECT device FROM device_seen WHERE last_seen>? GROUP BY device HAVING COUNT(DISTINCT user_id)>=2)`, now-30*dayMs)
 	p.Risk["shared_prefix"] = s.count(`SELECT COUNT(*) FROM (SELECT prefix FROM ip_log GROUP BY prefix HAVING COUNT(DISTINCT user_id)>=3)`)
 	p.Risk["x_young"] = s.count(`SELECT COUNT(*) FROM users WHERE x_created_ms>0 AND x_created_ms > ?`, now-30*dayMs)
 	a.render(w, http.StatusOK, "adminstats", p)

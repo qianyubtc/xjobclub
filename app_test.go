@@ -2252,7 +2252,7 @@ func TestCreditCountsManualConfirm(t *testing.T) {
 // ---- 自导自演不计信用：接单时同网段，或付款结算时才同网段 ----
 
 func TestSelfDealNotCredited(t *testing.T) {
-	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\nADMIN_HANDLES=boss\n")
 	alice, bob, carl := e.browser("alice"), e.browser("bob"), e.browser("carl")
 	au := alice.register("alice", "7901")
 	bu := bob.register("bob", "7902")
@@ -2297,7 +2297,60 @@ func TestSelfDealNotCredited(t *testing.T) {
 	if st := e.a.st.PubStats(au.ID); st.PaidCredit != 0 || st.Paid != 2 {
 		t.Fatalf("stats %+v", st)
 	}
-	_ = cu
+	// dan：IP 完全不同，但用的是 alice 的浏览器（同一枚设备 cookie）→ 也判自导自演
+	dan := e.browser("dan")
+	du := dan.register("dan", "7904")
+	dan.setUID("44004")
+	alice.get("/me") // 发 cookie 的那次不记录，回显一次才落 device_seen
+	su, _ := url.Parse(e.srv.URL)
+	var tdev *http.Cookie
+	for _, c := range alice.c.Jar.Cookies(su) {
+		if c.Name == "tdev" {
+			tdev = c
+		}
+	}
+	if tdev == nil {
+		t.Fatal("device cookie should have been issued")
+	}
+	dan.c.Jar.SetCookies(su, []*http.Cookie{{Name: "tdev", Value: tdev.Value}})
+	dan.get("/me")
+	x3 := dan.claim(task)
+	if x3.SelfDeal != 1 {
+		t.Fatal("same browser as the publisher must be flagged even from another IP")
+	}
+	// 只是同一个 /24 网段（不同 IP）的真人不再被误伤
+	eve := e.browser("eve")
+	eu := eve.register("eve", "7905")
+	eve.setUID("44005")
+	eve.ip = strings.TrimSuffix(alice.ip, ".1") + ".77"
+	eve.get("/me")
+	t2 := alice.publish(taskForm(url.Values{"slots": {"2"}}))
+	x4 := eve.claim(t2)
+	if x4.SelfDeal != 0 {
+		t.Fatal("sharing only the /24 must not be flagged")
+	}
+	// 管理员可翻转误判（普通用户不行）
+	if resp, _ := dan.post("/admin/sub/"+x3.Code+"/selfdeal", nil); resp.StatusCode == 302 {
+		if nx, _ := e.a.st.GetSubByID(x3.ID); nx.SelfDeal != 1 {
+			t.Fatal("non-admin must not flip the flag")
+		}
+	}
+	boss := e.browser("boss")
+	boss.register("boss", "7999")
+	if resp, _ := boss.post("/admin/sub/"+x3.Code+"/selfdeal", nil); resp.StatusCode != 302 {
+		t.Fatalf("admin toggle: %d", resp.StatusCode)
+	}
+	if nx, _ := e.a.st.GetSubByID(x3.ID); nx.SelfDeal != 0 {
+		t.Fatal("admin should be able to clear a false positive")
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM audit_log WHERE action='sub.selfdeal'`); n != 1 {
+		t.Fatalf("audit %d", n)
+	}
+	boss.post("/admin/sub/"+x3.Code+"/selfdeal", nil)
+	if nx, _ := e.a.st.GetSubByID(x3.ID); nx.SelfDeal != 1 {
+		t.Fatal("toggle back")
+	}
+	_, _, _ = cu, du, eu
 }
 
 // ---- 开头 @某人 的原帖不是回复；验证通过自动结掉 C 类申诉 ----

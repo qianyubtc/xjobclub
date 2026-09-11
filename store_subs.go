@@ -420,7 +420,8 @@ func (s *Store) WorkerStats(userID int64) WorkerStats {
 	return st
 }
 
-// SelfDealing 发布方与接单方是否疑似同一人（同 IP 段 / 同付款账户）。
+// SelfDealing 发布方与接单方是否疑似同一人：同账号 / 同付款账户 / 30 天内同一时段用过同一个 IP / 用过同一个浏览器。
+// 不按 /24 网段判——运营商 NAT 下几十个真人共用一个网段是常态，会误伤信用计数；网段只用于陪审员回避。
 func (s *Store) SelfDealing(ownerID, workerID int64) bool {
 	if ownerID == workerID {
 		return true
@@ -431,7 +432,7 @@ func (s *Store) SelfDealing(ownerID, workerID int64) bool {
 	if a != "" && a == b {
 		return true
 	}
-	return s.SharedIP(ownerID, workerID)
+	return s.SharedExactIP(ownerID, workerID) || s.SharedDevice(ownerID, workerID)
 }
 
 // PublicRecord 公开成交记录（不含任何付款细节）。
