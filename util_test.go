@@ -9,10 +9,12 @@ import (
 func TestNormTweet(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"  Hello   World ", "Hello World"},
-		{"看 HTTPS://Example.com/Abc 这个", "看 https://example.com/abc 这个"},
+		{"看 HTTPS://Example.com/Abc 这个", "看 example.com/abc 这个"},
 		{"a &amp; b", "a & b"},
 		{"全角，逗号", "全角,逗号"},
-		{"链接 https://x.com/abc。", "链接 https://x.com/abc。"},
+		{"链接 https://x.com/abc。", "链接 x.com/abc。"},
+		{"官网 bitget.com/ref 走起", "官网 bitget.com/ref 走起"},
+		{"官网 http://www.Bitget.com/ref 走起", "官网 bitget.com/ref 走起"},
 	}
 	for _, c := range cases {
 		if got := normTweet(c.in); got != c.want {

@@ -130,6 +130,29 @@ func (a *App) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	a.render(w, http.StatusOK, "adminuser", p)
 }
 
+// resolveDisputeSpec 维护命令用：按 "申诉编号:结论[:补充]" 裁决一条申诉，与后台裁决走同一条路径。
+func (a *App) resolveDisputeSpec(spec string) (string, error) {
+	parts := strings.SplitN(strings.TrimSpace(spec), ":", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", errors.New("格式应为 申诉编号:结论[:补充]")
+	}
+	d, err := a.st.GetDisputeByCode(parts[0])
+	if err != nil || d == nil {
+		return "", errors.New("申诉不存在：" + parts[0])
+	}
+	if d.Status == "resolved" {
+		return "", errors.New("该申诉已结案")
+	}
+	extra := ""
+	if len(parts) == 3 {
+		extra = strings.TrimSpace(parts[2])
+	}
+	if err := a.applyResolution(d, parts[1], "管理员裁决（维护命令）", 0, extra, "cli"); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("申诉 %s（%s 类）已按「%s」裁决", d.Code, d.Type, parts[1]), nil
+}
+
 // handleAdminDispute resolve / takeover / tojury。
 func (a *App) handleAdminDispute(w http.ResponseWriter, r *http.Request) {
 	admin, ok := a.requireAdmin(w, r)

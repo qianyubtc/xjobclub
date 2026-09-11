@@ -42,7 +42,7 @@
   <pre class="tweet" id="content">{{.Content}}</pre>
   <div class="btns"><a class="btn" id="intent" href="{{.IntentURL}}" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true"><use href="#i-post"/></svg>一键去 X 发帖</a><button type="button" class="btn sec copy" data-copy-from="content">复制文案</button></div>
   <a id="intentAlt" href="{{.IntentURL}}" target="_blank" rel="noopener" hidden class="hint altlink">没拉起 X App？点这里用网页版发 →</a>
-  <div class="hint">{{if eq .T.MatchMode "contains"}}可以加自己的话，但文案要完整保留。{{else}}正文须与文案一致（可复制粘贴）。{{end}}必须是原帖（不能是回复），账号需公开。发完请勿删除{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}{{end}}。</div>
+  <div class="hint">{{if eq .T.MatchMode "contains"}}可以加自己的话，但文案要完整保留。{{else}}正文须与文案一致（可复制粘贴）。{{end}}必须是原帖（不能是回复；开头别写 @某人，X 会把它当成回复、缩小曝光，@ 放句中即可），账号需公开。发完请勿删除{{if .T.RetentionH}}，须保留 {{dur .T.RetentionH}}{{end}}。</div>
   <h2>② 把推文链接贴回来</h2>
   {{end}}
   <form method="post" action="/s/{{.X.Code}}/submit">

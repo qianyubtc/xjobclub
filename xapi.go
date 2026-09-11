@@ -22,15 +22,18 @@ type xUser struct {
 
 // Tweet 抓到的推文（只保留验证需要的字段）。
 type Tweet struct {
-	ID        string
-	Text      string // 展开 t.co、去掉尾部媒体链接后的正文
-	CreatedMs int64
-	User      xUser
-	IsReply   bool
-	InReplyTo string // 直接回复的那条推文 ID
-	QuotedID  string
-	Edited    bool
-	Raw       []byte
+	ID          string
+	Text        string // 展开 t.co、去掉尾部媒体链接后的正文
+	CreatedMs   int64
+	User        xUser
+	IsReply     bool
+	InReplyTo   string // 直接回复的那条推文 ID
+	MentionLead bool   // 以 @某人 开头的原帖：X 标 in_reply_to_screen_name 但没有目标推文，不算回复（只是曝光会小）
+	QuotedID    string
+	Edited      bool
+	RootID      string // 编辑组原始 ID（未编辑过 = 自己）
+	Truncated   bool   // 长推文只读到前 280 字（补全失败）
+	Raw         []byte
 }
 
 // fetchErr 抓取错误：Retry=true 表示瞬时故障（网络/限流/5xx），可稍后重试；false 表示确定读不到（删除/保护/不存在）。
@@ -77,9 +80,13 @@ type syndTweet struct {
 		IDStr string `json:"id_str"`
 	} `json:"quoted_tweet"`
 	IsEdited    bool `json:"isEdited"`
+	IsStaleEdit bool `json:"isStaleEdit"`
 	EditControl struct {
 		EditTweetIDs []string `json:"edit_tweet_ids"`
 	} `json:"edit_control"`
+	NoteTweet *struct {
+		ID string `json:"id"`
+	} `json:"note_tweet"` // 长推文：text 只有前 280 字
 }
 
 // fetchTweet 用 X 嵌入组件的公开接口读一条推文（免 API Key）。结果写入 tweet_cache。
@@ -98,7 +105,12 @@ func (a *App) fetchTweet(id, purpose string) (*Tweet, error) {
 	return tw, err
 }
 
+// fetchTweetRaw 读一条推文；如果给的是旧编辑版本，自动跟到最新版本（旧版本 ID 会原样返回旧文本）。
 func (a *App) fetchTweetRaw(id string) (*Tweet, error) {
+	return a.fetchTweetRawOnce(id, true)
+}
+
+func (a *App) fetchTweetRawOnce(id string, followEdit bool) (*Tweet, error) {
 	req, _ := http.NewRequest("GET", a.cfg.XTweetAPI+"/tweet-result?id="+id+"&token="+tweetToken(id), nil)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (xjobclub)")
@@ -137,7 +149,8 @@ func (a *App) fetchTweetRaw(id string) (*Tweet, error) {
 		}
 	}
 	tw.User = xUser{ID: t.User.IDStr, Name: t.User.Name, Handle: t.User.ScreenName, Avatar: t.User.Avatar}
-	tw.IsReply = t.Parent != nil || t.InReplyToStatusID != "" || t.InReplyToScreen != ""
+	tw.IsReply = t.Parent != nil || t.InReplyToStatusID != ""
+	tw.MentionLead = !tw.IsReply && t.InReplyToScreen != ""
 	tw.InReplyTo = t.InReplyToStatusID
 	if tw.InReplyTo == "" && t.Parent != nil {
 		var pt struct {
@@ -149,22 +162,100 @@ func (a *App) fetchTweetRaw(id string) (*Tweet, error) {
 	if t.Quoted != nil {
 		tw.QuotedID = t.Quoted.IDStr
 	}
-	text := t.Text
-	if len(t.Range) == 2 && t.Range[0] >= 0 && t.Range[1] >= t.Range[0] {
-		if r := []rune(text); t.Range[1] <= len(r) {
-			text = string(r[t.Range[0]:t.Range[1]])
+	// 编辑过的推文：每个版本一个 ID，旧 ID 返回旧文本。跟到最新版本，并记住编辑组的原始 ID
+	ids := t.EditControl.EditTweetIDs
+	if latest := lastNonEmpty(ids); followEdit && latest != "" && latest != tw.ID {
+		if nt, err := a.fetchTweetRawOnce(latest, false); err == nil {
+			return nt, nil
 		}
+	}
+	tw.RootID = tw.ID
+	if len(ids) > 0 && ids[0] != "" {
+		tw.RootID = ids[0]
+	}
+	text := t.Text
+	// display_text_range 是 UTF-16 偏移（实测），只用它去掉回复里隐藏的 @前缀；尾部媒体链接靠 entities 去掉，不按偏移截
+	if len(t.Range) == 2 && t.Range[0] > 0 {
+		text = dropUTF16Prefix(text, t.Range[0])
 	}
 	for _, m := range t.Entities.Media {
 		text = strings.ReplaceAll(text, m.URL, "")
 	}
 	for _, u := range t.Entities.URLs {
-		if u.URL != "" && u.Expanded != "" {
+		if u.URL == "" {
+			continue
+		}
+		if tw.QuotedID != "" && u.Expanded != "" && strings.Contains(u.Expanded, "/status/"+tw.QuotedID) {
+			text = strings.ReplaceAll(text, u.URL, "") // 粘贴链接形成的引用：链接不算正文
+			continue
+		}
+		if u.Expanded != "" {
 			text = strings.ReplaceAll(text, u.URL, u.Expanded)
+		}
+	}
+	if t.NoteTweet != nil {
+		// 长推文：嵌入接口只给前 280 字，去镜像接口补全文；补不到就标记，验证失败时给出解释
+		if full, err := a.fetchFullText(tw.ID); err == nil && len([]rune(full)) > len([]rune(text)) {
+			text = full
+		} else {
+			tw.Truncated = true
 		}
 	}
 	tw.Text = strings.TrimSpace(text)
 	return tw, nil
+}
+
+func lastNonEmpty(ids []string) string {
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] != "" {
+			return ids[i]
+		}
+	}
+	return ""
+}
+
+// dropUTF16Prefix 按 UTF-16 单元数去掉前缀（X 的 display_text_range 单位）。
+func dropUTF16Prefix(text string, units int) string {
+	n := 0
+	for i, c := range text {
+		if n >= units {
+			return text[i:]
+		}
+		if c > 0xFFFF {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return ""
+}
+
+// fetchFullText 长推文全文：镜像接口 /status/{id} 的 tweet.text。调用方已持有 fetchSem。
+func (a *App) fetchFullText(tweetID string) (string, error) {
+	if a.cfg.XProfileAPI == "" || tweetID == "" {
+		return "", errors.New("no text source")
+	}
+	req, _ := http.NewRequest("GET", a.cfg.XProfileAPI+"/status/"+tweetID, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (xjobclub)")
+	req.Header.Set("Accept", "application/json")
+	resp, err := xHC.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("text http %d", resp.StatusCode)
+	}
+	var out struct {
+		Tweet struct {
+			Text string `json:"text"`
+		} `json:"tweet"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || strings.TrimSpace(out.Tweet.Text) == "" {
+		return "", errors.New("text missing")
+	}
+	return out.Tweet.Text, nil
 }
 
 var reFollowers = regexp.MustCompile(`"followers_count":(\d+)`)

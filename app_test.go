@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	bpaygate "github.com/qianyubtc/BinancePayTool/sdk/go"
 )
@@ -27,8 +28,17 @@ type mockTweet struct {
 	ID, Text, UserID, Handle, Name string
 	CreatedMs                      int64
 	Reply                          bool
-	InReplyTo                      string // 直接回复的推文 ID
+	InReplyTo                      string      // 直接回复的推文 ID
+	MentionLead                    string      // 开头 @ 的那个人（X 只给 in_reply_to_screen_name，没有目标推文）
+	ReplyPrefix                    string      // 回复里隐藏的 @前缀（display_text_range 之外）
+	Media                          string      // 尾部媒体 t.co 链接（display_text_range 之外）
+	URLs                           [][2]string // {t.co, expanded_url}
+	Note                           bool        // 长推文：只返回前 20 个字 + note_tweet
+	EditIDs                        []string    // 编辑组的全部版本 ID
+	QuotedID                       string
 }
+
+func utf16Len(s string) int { return len(utf16.Encode([]rune(s))) }
 
 type syndMock struct {
 	mu     sync.Mutex
@@ -47,14 +57,51 @@ func newSynd() *syndMock {
 			w.WriteHeader(404)
 			return
 		}
-		out := map[string]any{"__typename": "Tweet", "id_str": tw.ID, "text": tw.Text, "created_at": time.UnixMilli(tw.CreatedMs).UTC().Format(time.RFC3339Nano),
-			"user":     map[string]any{"id_str": tw.UserID, "name": tw.Name, "screen_name": tw.Handle, "profile_image_url_https": "https://pbs.twimg.com/x_normal.jpg"},
-			"entities": map[string]any{"urls": []any{}}}
+		text := tw.Text
+		if tw.Note {
+			if r := []rune(text); len(r) > 20 {
+				text = string(r[:20])
+			}
+		}
+		start := 0
+		if tw.ReplyPrefix != "" {
+			text = tw.ReplyPrefix + " " + text
+			start = utf16Len(tw.ReplyPrefix) + 1
+		}
+		end := utf16Len(text)
+		media := []any{}
+		if tw.Media != "" {
+			text += " " + tw.Media
+			media = append(media, map[string]any{"url": tw.Media})
+		}
+		urls := []any{}
+		for _, u := range tw.URLs {
+			urls = append(urls, map[string]any{"url": u[0], "expanded_url": u[1], "indices": []int{0, 0}})
+		}
+		out := map[string]any{"__typename": "Tweet", "id_str": tw.ID, "text": text, "created_at": time.UnixMilli(tw.CreatedMs).UTC().Format(time.RFC3339Nano),
+			"user":               map[string]any{"id_str": tw.UserID, "name": tw.Name, "screen_name": tw.Handle, "profile_image_url_https": "https://pbs.twimg.com/x_normal.jpg"},
+			"entities":           map[string]any{"urls": urls, "media": media},
+			"display_text_range": []int{start, end}}
+		if tw.Note {
+			out["note_tweet"] = map[string]any{"id": tw.ID}
+		}
+		if len(tw.EditIDs) > 0 {
+			out["edit_control"] = map[string]any{"edit_tweet_ids": tw.EditIDs}
+			out["isEdited"] = true
+			out["isStaleEdit"] = tw.EditIDs[len(tw.EditIDs)-1] != tw.ID
+		}
+		if tw.QuotedID != "" {
+			out["quoted_tweet"] = map[string]any{"id_str": tw.QuotedID}
+		}
 		if tw.InReplyTo != "" {
 			out["in_reply_to_status_id_str"] = tw.InReplyTo
 			out["parent"] = map[string]any{"id_str": tw.InReplyTo}
 		} else if tw.Reply {
 			out["in_reply_to_status_id_str"] = "1"
+		}
+		if tw.MentionLead != "" {
+			out["in_reply_to_screen_name"] = tw.MentionLead
+			out["in_reply_to_user_id_str"] = "1098881129057112064"
 		}
 		json.NewEncoder(w).Encode(out)
 	}))
@@ -247,6 +294,7 @@ type env struct {
 // profMock 粉丝数来源 mock：/{handle} 返回 FxTwitter 风格 JSON；/srv/... 返回 404 模拟官方接口不可用。
 type profMock struct {
 	mu        sync.Mutex
+	texts     map[string]string // 推文 ID → 全文（长推文补全）
 	followers map[string]int64
 	retweets  map[string][]string // handle → 转发过的推文 ID
 	views     map[string]int64    // 推文 ID → 浏览量
@@ -254,18 +302,26 @@ type profMock struct {
 }
 
 func newProf() *profMock {
-	m := &profMock{followers: map[string]int64{}, retweets: map[string][]string{}, views: map[string]int64{}}
+	m := &profMock{followers: map[string]int64{}, retweets: map[string][]string{}, views: map[string]int64{}, texts: map[string]string{}}
 	m.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/status/") {
 			id := strings.TrimPrefix(r.URL.Path, "/status/")
 			m.mu.Lock()
 			v, ok := m.views[id]
+			txt, okt := m.texts[id]
 			m.mu.Unlock()
-			if !ok {
+			if !ok && !okt {
 				w.WriteHeader(404)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]any{"code": 200, "tweet": map[string]any{"id": id, "views": v}})
+			tweet := map[string]any{"id": id}
+			if ok {
+				tweet["views"] = v
+			}
+			if okt {
+				tweet["text"] = txt
+			}
+			json.NewEncoder(w).Encode(map[string]any{"code": 200, "tweet": tweet})
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/srv/") {
@@ -302,7 +358,9 @@ func newProf() *profMock {
 	return m
 }
 
-func (m *profMock) set(handle string, n int64) { m.mu.Lock(); m.followers[handle] = n; m.mu.Unlock() }
+func (m *profMock) set(handle string, n int64)   { m.mu.Lock(); m.followers[handle] = n; m.mu.Unlock() }
+func (m *profMock) setText(tweetID, text string) { m.mu.Lock(); m.texts[tweetID] = text; m.mu.Unlock() }
+
 func (m *profMock) setViews(tweetID string, n int64) {
 	m.mu.Lock()
 	m.views[tweetID] = n
@@ -2240,4 +2298,155 @@ func TestSelfDealNotCredited(t *testing.T) {
 		t.Fatalf("stats %+v", st)
 	}
 	_ = cu
+}
+
+// ---- 开头 @某人 的原帖不是回复；验证通过自动结掉 C 类申诉 ----
+
+func TestMentionLeadIsNotReply(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob := e.browser("alice"), e.browser("bob")
+	alice.register("alice", "8101")
+	bu := bob.register("bob", "8102")
+	alice.setUID("45001")
+	alice.certify("payer-ML")
+	bob.setUID("45002")
+	task := alice.publish(taskForm(url.Values{"match_mode": {"contains"}, "slots": {"2"}}))
+	x := bob.claim(task)
+	// 先来一条真正的回复 → 被拒；接单方发起 C 类申诉
+	e.synd.add(mockTweet{ID: "8201", Text: task.Contents[0], UserID: "8102", Handle: "bob", Reply: true})
+	bob.post("/s/"+x.Code+"/submit", url.Values{"tweet_url": {"https://x.com/bob/status/8201"}})
+	if nx, _ := e.a.st.GetSubByID(x.ID); nx.Status != SClaimed || !strings.Contains(nx.LastError, "这是一条回复") {
+		t.Fatalf("real reply must be rejected: %s %q", nx.Status, nx.LastError)
+	}
+	if resp, _ := bob.post("/s/"+x.Code+"/dispute", url.Values{"type": {"C"}, "text": {"我发的是原帖，请人工看看"}}); resp.StatusCode != 302 {
+		t.Fatal("dispute C failed")
+	}
+	d, _ := e.a.st.OpenDisputeForSub(x.ID)
+	if d == nil || d.Type != "C" {
+		t.Fatalf("dispute %+v", d)
+	}
+	// 开头 @某人 的原帖：X 只给 in_reply_to_screen_name，没有目标推文 → 应通过；申诉自动结案
+	e.synd.add(mockTweet{ID: "8202", Text: "@bitget " + task.Contents[0], UserID: "8102", Handle: "bob", MentionLead: "bitget"})
+	x = bob.submitTweet(x, "8202")
+	if x.Status != SVerified && x.Status != SPayable {
+		t.Fatalf("mention-lead post must verify: %s %s", x.Status, x.LastError)
+	}
+	if d2, _ := e.a.st.OpenDisputeForSub(x.ID); d2 != nil {
+		t.Fatal("C dispute should auto-close after verification")
+	}
+	if n := e.a.st.count(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND title LIKE '%自动结案%'`, bu.ID); n != 1 {
+		t.Fatalf("worker should be told, got %d", n)
+	}
+	// 评论任务仍然要求真正回复目标推文：只开头 @ 不算
+	e.synd.add(mockTweet{ID: "8300", Text: "目标推文", UserID: "8101", Handle: "alice"})
+	rt := alice.publish(taskForm(url.Values{"ttype": {"reply"}, "target": {"https://x.com/alice/status/8300"}, "match_mode": {"any"}, "min_len": {"5"}, "content1": {""}, "slots": {"2"}}))
+	x3 := bob.claim(rt)
+	e.synd.add(mockTweet{ID: "8203", Text: "@alice 这只是开头提及，不是回复", UserID: "8102", Handle: "bob", MentionLead: "alice"})
+	bob.post("/s/"+x3.Code+"/submit", url.Values{"tweet_url": {"https://x.com/bob/status/8203"}})
+	if nx, _ := e.a.st.GetSubByID(x3.ID); nx.Status != SClaimed || !strings.Contains(nx.LastError, "不是对目标推文的直接回复") {
+		t.Fatalf("mention-lead must not count as a reply for reply tasks: %s %q", nx.Status, nx.LastError)
+	}
+}
+
+// ---- 维护命令：按编号裁决申诉（C 类成立 = 强制通过验证） ----
+
+func TestResolveDisputeSpec(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\n")
+	alice, bob := e.browser("alice"), e.browser("bob")
+	alice.register("alice", "8401")
+	bob.register("bob", "8402")
+	alice.setUID("46001")
+	alice.certify("payer-RS")
+	bob.setUID("46002")
+	task := alice.publish(taskForm(url.Values{"retention": {"24"}, "slots": {"2"}}))
+	x := bob.claim(task)
+	e.synd.add(mockTweet{ID: "8501", Text: task.Contents[0], UserID: "8402", Handle: "bob", Reply: true})
+	bob.post("/s/"+x.Code+"/submit", url.Values{"tweet_url": {"https://x.com/bob/status/8501"}})
+	bob.post("/s/"+x.Code+"/dispute", url.Values{"type": {"C"}, "text": {"我发的是原帖，请人工看看"}})
+	d, _ := e.a.st.OpenDisputeForSub(x.ID)
+	if d == nil {
+		t.Fatal("dispute expected")
+	}
+	if _, err := e.a.resolveDisputeSpec("nope"); err == nil {
+		t.Fatal("bad spec must fail")
+	}
+	if _, err := e.a.resolveDisputeSpec(d.Code + ":upheld"); err == nil {
+		t.Fatal("C upheld needs the tweet link")
+	}
+	msg, err := e.a.resolveDisputeSpec(d.Code + ":upheld:https://x.com/bob/status/8501")
+	if err != nil || !strings.Contains(msg, d.Code) {
+		t.Fatalf("resolve: %v %s", err, msg)
+	}
+	x, _ = e.a.st.GetSubByID(x.ID)
+	if x.Status != SVerified || x.RecheckFlag != "forced" || x.RecheckDueAt == 0 {
+		t.Fatalf("forced verify expected: %s %q", x.Status, x.RecheckFlag)
+	}
+	if d2, _ := e.a.st.GetDisputeByID(d.ID); d2.Status != "resolved" {
+		t.Fatalf("dispute should be resolved: %s", d2.Status)
+	}
+	if _, err := e.a.resolveDisputeSpec(d.Code + ":upheld:https://x.com/bob/status/8501"); err == nil {
+		t.Fatal("resolving twice must fail")
+	}
+}
+
+// ---- 真实 X 载荷的几种坑：UTF-16 偏移、裸域名链接、长推文、编辑版本、粘贴链接引用 ----
+
+func TestTweetPayloadQuirks(t *testing.T) {
+	e := newEnv(t, "OPEN_TASKS_NEWBIE=10\nCONCUR_NEWBIE=20\nDAILY_NEWBIE=20\n")
+	alice, bob := e.browser("alice"), e.browser("bob")
+	alice.register("alice", "8601")
+	bob.register("bob", "8602")
+	alice.setUID("47001")
+	alice.certify("payer-PQ")
+	bob.setUID("47002")
+	verifyOK := func(task *Task, tw mockTweet) *Submission {
+		t.Helper()
+		x := bob.claim(task)
+		e.synd.add(tw)
+		x = bob.submitTweet(x, tw.ID)
+		if x.Status != SVerified && x.Status != SPayable {
+			t.Fatalf("%s: expected verified, got %s: %s", tw.ID, x.Status, x.LastError)
+		}
+		return x
+	}
+	// 1) emoji + 图片：display_text_range 是 UTF-16 偏移，按码点截会把 t.co 截半
+	t1 := alice.publish(taskForm(url.Values{"content1": {"💜💜 今天也要发推 推了么"}, "slots": {"1"}}))
+	verifyOK(t1, mockTweet{ID: "8701", Text: t1.Contents[0], UserID: "8602", Handle: "bob", Media: "https://t.co/pic1"})
+	// 2) 评论任务：隐藏的 @前缀在 range 之外
+	e.synd.add(mockTweet{ID: "8700", Text: "目标推文", UserID: "8601", Handle: "alice"})
+	t2 := alice.publish(taskForm(url.Values{"ttype": {"reply"}, "target": {"https://x.com/alice/status/8700"}, "content1": {"支持一下 🎉 推了么"}, "match_mode": {"exact"}, "slots": {"1"}}))
+	verifyOK(t2, mockTweet{ID: "8702", Text: t2.Contents[0], UserID: "8602", Handle: "bob", InReplyTo: "8700", ReplyPrefix: "@alice"})
+	// 3) 文案里的裸域名：X 包成 t.co，展开成 http://…；两边都归一成 bitget.com/ref/abc
+	t3 := alice.publish(taskForm(url.Values{"content1": {"官网 Bitget.com/ref/abc 走起"}, "slots": {"1"}}))
+	verifyOK(t3, mockTweet{ID: "8703", Text: strings.Replace(t3.Contents[0], "Bitget.com/ref/abc", "https://t.co/abc1", 1), UserID: "8602", Handle: "bob", URLs: [][2]string{{"https://t.co/abc1", "http://bitget.com/ref/abc"}}})
+	// 4) 长推文：嵌入接口只给前 20 字（测试桩），镜像接口补全文
+	t4 := alice.publish(taskForm(url.Values{"content1": {"推了么测试文案 完整版本 https://example.com/p"}, "match_mode": {"contains"}, "slots": {"1"}}))
+	full := "先写一大段自己的引子，然后才是正题，正题在后面。" + t4.Contents[0]
+	e.prof.setText("8704", full)
+	verifyOK(t4, mockTweet{ID: "8704", Text: full, UserID: "8602", Handle: "bob", Note: true})
+	// 4b) 补不到全文：失败原因要说明是长推文
+	t4b := alice.publish(taskForm(url.Values{"content1": {"藏在后面的文案"}, "match_mode": {"contains"}, "slots": {"1"}}))
+	x4b := bob.claim(t4b)
+	e.synd.add(mockTweet{ID: "8705", Text: "前面二十个字前面二十个字前面二十个字前面 " + t4b.Contents[0], UserID: "8602", Handle: "bob", Note: true})
+	bob.post("/s/"+x4b.Code+"/submit", url.Values{"tweet_url": {"https://x.com/bob/status/8705"}})
+	if nx, _ := e.a.st.GetSubByID(x4b.ID); nx.Status != SClaimed || !strings.Contains(nx.LastError, "长推文") {
+		t.Fatalf("truncated long post should explain: %s %q", nx.Status, nx.LastError)
+	}
+	// 5) 编辑过的推文：提交旧版本 ID → 跟到最新版本；同一编辑组不能再投别的任务
+	t5 := alice.publish(taskForm(url.Values{"content1": {"编辑前后都要对得上"}, "slots": {"1"}}))
+	e.synd.add(mockTweet{ID: "8707", Text: t5.Contents[0], UserID: "8602", Handle: "bob", EditIDs: []string{"8706", "8707"}})
+	x5 := verifyOK(t5, mockTweet{ID: "8706", Text: "打错字的旧版本", UserID: "8602", Handle: "bob", EditIDs: []string{"8706", "8707"}})
+	if x5.TweetID != "8707" || x5.TweetRoot != "8706" {
+		t.Fatalf("canonical id/root: %s/%s", x5.TweetID, x5.TweetRoot)
+	}
+	t5b := alice.publish(taskForm(url.Values{"content1": {"编辑前后都要对得上"}, "slots": {"1"}}))
+	x5b := bob.claim(t5b)
+	resp5, body5 := bob.post("/s/"+x5b.Code+"/submit", url.Values{"tweet_url": {"https://x.com/bob/status/8706"}})
+	nx5, _ := e.a.st.GetSubByID(x5b.ID)
+	if nx5.Status != SClaimed || !(strings.Contains(body5, "已用于") || strings.Contains(nx5.LastError, "已用于")) {
+		t.Fatalf("another version of the same tweet must not verify twice: %d %s %q", resp5.StatusCode, nx5.Status, nx5.LastError)
+	}
+	// 6) 粘贴链接形成的引用：链接不算正文
+	t6 := alice.publish(taskForm(url.Values{"content1": {"引用一下这条好帖"}, "slots": {"1"}}))
+	verifyOK(t6, mockTweet{ID: "8708", Text: t6.Contents[0] + " https://t.co/q1", UserID: "8602", Handle: "bob", URLs: [][2]string{{"https://t.co/q1", "https://x.com/someone/status/777"}}, QuotedID: "777"})
 }

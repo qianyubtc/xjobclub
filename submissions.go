@@ -274,8 +274,8 @@ func (a *App) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		bad("推文链接不对，应形如 https://x.com/你的名字/status/1234567890")
 		return
 	}
-	if n := a.st.count(`SELECT COUNT(*) FROM submissions WHERE tweet_id=? AND id<>?`, id, x.ID); n > 0 {
-		bad("这条推文已经用过了，一条推文只能核销一条记录")
+	if n := a.st.count(`SELECT COUNT(*) FROM submissions WHERE id<>? AND (tweet_id=? OR (tweet_root<>'' AND tweet_root=?))`, x.ID, id, id); n > 0 {
+		bad("这条推文（或它的编辑版本）已用于其它记录，一条推文只能核销一条记录")
 		return
 	}
 	if ok, err := a.st.SetSubmitted(x.ID, id, "https://x.com/i/web/status/"+id); err != nil || !ok {

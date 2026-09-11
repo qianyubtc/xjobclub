@@ -41,7 +41,7 @@
     {{if .X.MarkedPaidAt}}<span class="k">发布方标记已付</span><span class="v">{{ftime .X.MarkedPaidAt}}{{if .X.MarkedOrderID}} · 币安订单 <code>{{.X.MarkedOrderID}}</code>{{end}}</span>{{end}}{{end}}
     {{if .BL}}<span class="k">处罚</span><span class="v">{{.BL.Reason}} · {{fdate .BL.CreatedAt}}{{if .BL.AmountOwedE8}} · 欠款 {{amt .BL.AmountOwedE8}} U{{end}}</span>{{end}}
     <span class="k">发起时间</span><span class="v">{{ftime .D.CreatedAt}}{{if .D.EvidenceUntil}} · 举证截止 {{ftime .D.EvidenceUntil}}{{end}}</span>
-    {{if .D.Resolution}}<span class="k">结论</span><span class="v"><b>{{.D.ResolutionNote}}</b>{{if .D.ResolvedAt}} · {{ftime .D.ResolvedAt}}{{end}}{{if eq .D.ResolvedBy 0}} · 小法庭{{else}} · 管理员{{end}}</span>{{end}}
+    {{if .D.Resolution}}<span class="k">结论</span><span class="v"><b>{{.D.ResolutionNote}}</b>{{if .D.ResolvedAt}} · {{ftime .D.ResolvedAt}}{{end}}{{if has .D.Resolution "resolved_by_"}} · 系统{{else if eq .D.ResolvedBy 0}} · 小法庭{{else}} · 管理员{{end}}</span>{{end}}
   </div>
   {{if .Payments}}<div class="small muted">网关付款单：{{range .Payments}}<code>{{.MerchantOrderID}}</code> {{.Status}} {{if .ActualE8}}{{amt .ActualE8}} U{{end}}；{{end}}</div>{{end}}
 </section>

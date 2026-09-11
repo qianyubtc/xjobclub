@@ -199,13 +199,19 @@ func cleanText(s string, max int, multiline bool) string {
 	return strings.TrimSpace(s)
 }
 
-var reURL = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"']+|\bwww\.[^\s<>"']+`)
+// reURL 链接：带协议的、www. 开头的，以及裸域名（X 也会把 bitget.com/ref 这种包成 t.co，展开后带 http://）。
+var reURL = regexp.MustCompile(`(?i)\b(?:https?://)?(?:www\.)?[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/[^\s<>"']*)?`)
 
-// normTweet 推文正文规范化，验证与复检都比对这个结果：HTML 实体反转义、NFKC、链接小写、空白折叠。
+// normTweet 推文正文规范化，验证与复检都比对这个结果：HTML 实体反转义、NFKC、链接小写且去掉协议与 www.、空白折叠。
+// 任务文案在比对时也现算（不用发布时存的旧结果），两边口径永远一致。
 func normTweet(s string) string {
 	s = html.UnescapeString(s)
 	s = norm.NFKC.String(s)
-	s = reURL.ReplaceAllStringFunc(s, func(u string) string { return strings.ToLower(strings.TrimRight(u, ".,;:!?)）]】」』")) })
+	s = reURL.ReplaceAllStringFunc(s, func(u string) string {
+		u = strings.ToLower(strings.TrimRight(u, ".,;:!?)）]】」』"))
+		u = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
+		return strings.TrimPrefix(u, "www.")
+	})
 	return strings.Join(strings.Fields(s), " ")
 }
 

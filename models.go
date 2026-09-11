@@ -251,6 +251,7 @@ type Submission struct {
 	ClaimExpiresAt int64
 	TweetID        string
 	TweetURL       string
+	TweetRoot      string // 推文编辑组的原始 ID（同一条推文的各编辑版本共用，防一帖多投）
 	TweetText      string
 	TweetCreatedAt int64
 	VerifyAttempts int64

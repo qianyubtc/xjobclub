@@ -17,17 +17,18 @@ type verdict struct {
 
 // matchContent 规范化正文与任务任一变体比对，优先分配到的变体。返回命中的变体下标。
 func matchContent(t *Task, norm string, prefer int64) (bool, int) {
-	order := make([]int, 0, len(t.ContentsNorm))
-	if prefer >= 0 && int(prefer) < len(t.ContentsNorm) {
+	norms := taskNorms(t)
+	order := make([]int, 0, len(norms))
+	if prefer >= 0 && int(prefer) < len(norms) {
 		order = append(order, int(prefer))
 	}
-	for i := range t.ContentsNorm {
+	for i := range norms {
 		if int64(i) != prefer {
 			order = append(order, i)
 		}
 	}
 	for _, i := range order {
-		want := t.ContentsNorm[i]
+		want := norms[i]
 		if want == "" {
 			continue
 		}
@@ -40,6 +41,18 @@ func matchContent(t *Task, norm string, prefer int64) (bool, int) {
 		}
 	}
 	return false, -1
+}
+
+// taskNorms 任务文案的规范化结果，比对时现算（规范化规则升级后旧任务不会因存的旧结果而误判）。
+func taskNorms(t *Task) []string {
+	if len(t.Contents) == 0 {
+		return t.ContentsNorm
+	}
+	out := make([]string, len(t.Contents))
+	for i, c := range t.Contents {
+		out[i] = normTweet(c)
+	}
+	return out
 }
 
 // diffHint 指出第一处差异，帮接单方改正。
@@ -73,6 +86,17 @@ func diffHint(want, got string) string {
 	return fmt.Sprintf("第 %d 个字符起不一致。任务文案：「%s」 你的推文：「%s」", i+1, seg(w), seg(g))
 }
 
+// closeVerifyDispute 推文已通过验证：这条记录上未结的 C 类（验证误判）申诉自动结案。
+func (a *App) closeVerifyDispute(x *Submission, w *User) {
+	d, _ := a.st.OpenDisputeForSub(x.ID)
+	if d == nil || d.Type != "C" {
+		return
+	}
+	a.st.ResolveDispute(d.ID, "resolved_by_verify", "推文已通过验证，申诉自动结案", 0)
+	a.st.Audit(0, "dispute.auto_close", "dispute", d.ID, map[string]any{"by": "verify"}, "")
+	a.notify(w.ID, "dispute", "申诉 "+d.Code+" 已自动结案", "你的推文已通过验证，无需再人工复核。", x.Path())
+}
+
 // checkTweet 七项检查里除"链接可解析"以外的六项（抓取失败由调用方处理）。
 func checkTweet(t *Task, worker *User, tw *Tweet, prefer int64) verdict {
 	if tw.User.ID == "" || tw.User.ID != worker.XID {
@@ -100,17 +124,21 @@ func checkTweet(t *Task, worker *User, tw *Tweet, prefer int64) verdict {
 	}
 	ok, idx := matchContent(t, norm, prefer)
 	if !ok {
+		norms := taskNorms(t)
 		want := ""
-		if prefer >= 0 && int(prefer) < len(t.ContentsNorm) {
-			want = t.ContentsNorm[prefer]
-		} else if len(t.ContentsNorm) > 0 {
-			want = t.ContentsNorm[0]
+		if prefer >= 0 && int(prefer) < len(norms) {
+			want = norms[prefer]
+		} else if len(norms) > 0 {
+			want = norms[0]
 		}
 		hint := diffHint(want, norm)
 		if t.MatchMode == "contains" {
 			hint = "推文里没有完整包含任务文案。" + hint
 		} else {
 			hint = "推文正文与任务文案不一致。" + hint
+		}
+		if tw.Truncated {
+			hint = "这是一条长推文，公开接口只读到了前 280 字，暂时无法补全全文。" + hint + " 可以把任务文案放在推文开头，或稍后再提交一次。"
 		}
 		return verdict{Reason: hint, Tweet: tw}
 	}
@@ -139,6 +167,24 @@ func (a *App) verifySubmission(x *Submission) {
 		a.notify(w.ID, "verify", "验证未通过", ferr.Error(), x.Path())
 		return
 	}
+	if tw.ID != "" && (tw.ID != x.TweetID || (tw.RootID != "" && tw.RootID != x.TweetRoot)) {
+		// 编辑过的推文归一到最新版本；同一条推文的任何版本只能核销一条记录
+		root := tw.RootID
+		if root == "" {
+			root = tw.ID
+		}
+		if a.st.TweetUsedElsewhere(tw.ID, root, x.ID) {
+			a.st.SetVerifyFailed(x.ID, "这条推文（或它的编辑版本）已用于其它记录")
+			a.notify(w.ID, "verify", "验证未通过", "这条推文（或它的编辑版本）已用于其它记录", x.Path())
+			return
+		}
+		if err := a.st.SetTweetCanonical(x.ID, tw.ID, root); err != nil {
+			a.st.SetVerifyFailed(x.ID, "这条推文已用于其它记录")
+			a.notify(w.ID, "verify", "验证未通过", "这条推文已用于其它记录", x.Path())
+			return
+		}
+		x.TweetID, x.TweetRoot = tw.ID, root
+	}
 	v := checkTweet(t, w, tw, x.VariantIdx)
 	if !v.OK {
 		a.st.SetVerifyFailed(x.ID, v.Reason)
@@ -157,6 +203,7 @@ func (a *App) verifySubmission(x *Submission) {
 		return
 	}
 	a.st.Audit(0, "sub.verified", "submission", x.ID, map[string]any{"tweet": x.TweetID}, "")
+	a.closeVerifyDispute(x, w) // 之前因误判发起的 C 类申诉自动结案
 	if t.CPM() {
 		sid, tid := x.ID, x.TweetID
 		safeGo("views", func() { a.sampleViews(sid, tid) })
