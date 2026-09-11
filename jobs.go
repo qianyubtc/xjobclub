@@ -177,7 +177,11 @@ func (a *App) routeDisputes(now int64) {
 		if d.Type == "A" {
 			// A 类：宽限期内已付则 afterPaid 已结案；这里只把未付的送去核实
 			if x, _ := a.st.GetSubByID(d.SubmissionID); x != nil && x.Status != SDisputed {
-				a.st.ResolveDispute(d.ID, "resolved_by_payment", "款项已到账，自动结案", 0)
+				if x.Status == SPaid || x.Status == SAwait {
+					a.st.ResolveDispute(d.ID, "resolved_by_payment", "款项已到账，自动结案", 0)
+				} else {
+					a.st.ResolveDispute(d.ID, "resolved_by_state", "记录已转为"+subStatus(x.Status)+"，申诉随之结案", 0)
+				}
 				continue
 			}
 		}
@@ -202,7 +206,7 @@ func (a *App) remind(now, since int64) {
 	for _, h := range a.cfg.ConfirmRemindH {
 		subs, _ := a.st.AwaitingSince(now - h*hourMs)
 		for _, x := range subs {
-			if x.MarkedPaidAt > since-h*hourMs { // 阈值时刻落在 (since, now] 内的只提醒一次
+			if max(x.MarkedPaidAt, x.TopupMarkedAt) > since-h*hourMs { // 阈值时刻落在 (since, now] 内的只提醒一次（补差登记会重新起算）
 				until := ""
 				if a.cfg.AutoConfirmH > h && !(x.TopupRequested > 0 && x.TopupMarkedAt == 0) {
 					until = fmt.Sprintf("，%s 后不处理会视为已收到、自动完成", dur(a.cfg.AutoConfirmH-h))

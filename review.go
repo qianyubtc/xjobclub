@@ -122,6 +122,10 @@ func (a *App) finishReview(t *Task, pass bool, result, note string, by int64) bo
 	if !ok {
 		return false
 	}
+	if pass && a.st.PublisherFrozen(t.OwnerID) > 0 {
+		// 发布方冻结中：过审也不能开放接单，付清后 UnfreezeOwnerTasks 会恢复
+		a.st.db.Exec(`UPDATE tasks SET status='paused', paused_by_freeze=1, updated_at=? WHERE id=? AND status='open'`, ms(), t.ID)
+	}
 	a.st.Audit(by, "task.review", "task", t.ID, map[string]any{"result": result}, "")
 	if pass {
 		a.notify(t.OwnerID, "task", "任务已通过审核，正式上线", fmt.Sprintf("《%s》：%s。现在会出现在大厅，可以被接单了。", t.Title, note), t.Path())

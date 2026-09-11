@@ -164,7 +164,7 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 		p.EstE8 = cpmAmount(t, x.Views)
 		if x.Status == SVerified && ms()-x.ViewsAt > 10*60*1000 && a.lim.allow("views:"+strconv.FormatInt(x.ID, 10), 1, 10*time.Minute) {
 			sid, tid := x.ID, x.TweetID
-			safeGo("views", func() { a.sampleViews(sid, tid) }) // 记录页顺手刷新一次浏览量（异步，10 分钟一次）
+			a.spawn("views", func() { a.sampleViews(sid, tid) }) // 记录页顺手刷新一次浏览量（异步，10 分钟一次）
 		}
 	}
 	if t.CPM() && p.IsOwner && x.Views > 5000 && p.Worker != nil && p.Worker.Followers > 0 && x.Views > 50*p.Worker.Followers {
@@ -179,7 +179,7 @@ func (a *App) buildSubPage(w http.ResponseWriter, r *http.Request, x *Submission
 	noOpenD := p.Dispute == nil || p.Dispute.Type != "D"
 	p.CanMark = strict && noOpenD && (x.Status == SPayable || x.Status == SOverdue || disputedOverdue || (p.TopupE8 > 0 && x.TopupMarkedAt == 0))
 	p.CanConfirm = p.IsWorker && x.Status == SAwait
-	p.CanPayNow = strict && x.Status == SVerified && p.Dispute == nil
+	p.CanPayNow = strict && x.Status == SVerified && p.Dispute == nil && !t.CPM() // 按浏览量计价的要等留存期末的浏览量，提前结算会按接近保底付
 	if x.Status == SAwait && a.cfg.AutoConfirmH > 0 && !(x.TopupMarkedAt == 0 && x.TopupRequested > 0) {
 		p.AutoAt = max(x.MarkedPaidAt, x.TopupMarkedAt) + a.cfg.AutoConfirmH*hourMs
 	}
@@ -365,6 +365,10 @@ func (a *App) handlePayNow(w http.ResponseWriter, r *http.Request) {
 	bad := func(m string) { a.render(w, http.StatusBadRequest, "sub", a.buildSubPage(w, r, x, t, u, m)) }
 	if x.Status != SVerified {
 		bad("只有留存期内（已验证）的记录可以提前付款")
+		return
+	}
+	if t.CPM() {
+		bad("按浏览量计价的任务要等留存期结束、按当时的浏览量一次算清，不能提前付款")
 		return
 	}
 	if d, _ := a.st.OpenDisputeForSub(x.ID); d != nil {
@@ -580,7 +584,8 @@ func (a *App) autoConfirmAwaiting(now int64) {
 	}
 	cut := now - a.cfg.AutoConfirmH*hourMs
 	// 已举报过（A 类）的记录不自动完成：接单方已经在追，必须由本人确认，否则"先赖账再假标记"就能靠对方沉默洗白并解冻
-	rows, err := a.st.querySubs(`WHERE status='awaiting_confirm' AND reported_at=0 AND ((topup_marked_at>0 AND topup_marked_at<?) OR (topup_marked_at=0 AND topup_requested_at=0 AND marked_paid_at>0 AND marked_paid_at<?))
+	// 逾期过（overdue_at>0）的也不自动完成：冻结中的发布方假标记 + 对方沉默 = 解冻，必须由接单方本人确认
+	rows, err := a.st.querySubs(`WHERE status='awaiting_confirm' AND reported_at=0 AND overdue_at=0 AND ((topup_marked_at>0 AND topup_marked_at<?) OR (topup_marked_at=0 AND topup_requested_at=0 AND marked_paid_at>0 AND marked_paid_at<?))
 		AND NOT EXISTS (SELECT 1 FROM disputes d WHERE d.submission_id=submissions.id AND d.status<>'resolved') ORDER BY id LIMIT 200`, cut, cut)
 	if err != nil {
 		return

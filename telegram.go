@@ -82,7 +82,11 @@ func (b *tgBot) call(ctx context.Context, method string, params url.Values) (jso
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := b.hc.Do(req)
 	if err != nil {
-		return nil, 0, err
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // *url.Error 带完整 URL（含令牌），日志里只留底层原因
+		}
+		return nil, 0, fmt.Errorf("telegram %s: %w", method, err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))

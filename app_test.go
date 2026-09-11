@@ -2048,15 +2048,15 @@ func TestEarlyPay(t *testing.T) {
 	if x4.Status != SVerified {
 		t.Fatalf("cpm verified expected: %s", x4.Status)
 	}
-	if resp, body := alice.post("/s/"+x4.Code+"/paynow", nil); resp.StatusCode != 400 || !strings.Contains(body, "浏览量") {
-		t.Fatalf("cpm without views should wait: %d %s", resp.StatusCode, snippet(body))
+	// 按浏览量计价的不能提前付款（提前 = 按接近保底付，坑接单方）
+	if resp, body := alice.post("/s/"+x4.Code+"/paynow", nil); resp.StatusCode != 400 || !strings.Contains(body, "不能提前付款") {
+		t.Fatalf("cpm early pay must be refused: %d %s", resp.StatusCode, snippet(body))
 	}
-	e.prof.setViews("7301", 1500)
-	if resp, _ := alice.post("/s/"+x4.Code+"/paynow", nil); resp.StatusCode != 302 {
-		t.Fatalf("cpm early pay: %d", resp.StatusCode)
+	if _, body := alice.get(x4.Path()); strings.Contains(body, "现在就付") {
+		t.Fatal("cpm record page must not offer early pay")
 	}
-	if x4, _ = e.a.st.GetSubByID(x4.ID); x4.Status != SPayable || x4.SettleViews != 1500 || x4.AmountE8 != 150000000 {
-		t.Fatalf("cpm early settle: %s views=%d amount=%d", x4.Status, x4.SettleViews, x4.AmountE8)
+	if x4, _ = e.a.st.GetSubByID(x4.ID); x4.Status != SVerified {
+		t.Fatalf("cpm record must stay verified: %s", x4.Status)
 	}
 	for _, pth := range []string{x.Path(), x3.Path(), x4.Path(), task.Path(), "/review", "/me", "/"} {
 		if _, body := alice.get(pth); strings.Contains(body, "[0x") || strings.Contains(body, "%!") {
@@ -2079,7 +2079,7 @@ func TestAutoConfirm(t *testing.T) {
 	bob.setUID("42002")
 	carl.setUID("42003")
 	dan.setUID("42004")
-	task := alice.publish(taskForm(url.Values{"slots": {"6"}}))
+	task := alice.publish(taskForm(url.Values{"slots": {"8"}}))
 	mark := func(b *browser, xid string, tid string, oid string) *Submission {
 		x := b.claim(task)
 		e.synd.add(mockTweet{ID: tid, Text: task.Contents[0], UserID: xid, Handle: b.who})
@@ -2147,6 +2147,16 @@ func TestAutoConfirm(t *testing.T) {
 		if dd, _ := e.a.st.OpenDisputeForSub(x3.ID); dd != nil {
 			t.Fatal("late dispute must be refused")
 		}
+	}
+	// 4a) 逾期过的记录不自动完成：冻结中的发布方假标记 + 对方沉默不能变成解冻
+	frank := e.browser("frank")
+	frank.register("frank", "7506")
+	frank.setUID("42006")
+	x6 := mark(frank, "7506", "7606", "452021922068888816")
+	e.a.st.db.Exec(`UPDATE submissions SET marked_paid_at=?, overdue_at=? WHERE id=?`, ms()-25*hourMs, ms()-30*hourMs, x6.ID)
+	e.a.runJobs()
+	if nx, _ := e.a.st.GetSubByID(x6.ID); nx.Status != SAwait {
+		t.Fatalf("record with overdue history must wait for explicit confirmation: %s", nx.Status)
 	}
 	// 4b) 已举报过的记录、申诉中的记录不自动完成（申诉会冻结发布方任务，放在接单用例之后）
 	eve := e.browser("eve")

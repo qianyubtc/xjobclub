@@ -206,7 +206,7 @@ func (a *App) verifySubmission(x *Submission) {
 	a.closeVerifyDispute(x, w) // 之前因误判发起的 C 类申诉自动结案
 	if t.CPM() {
 		sid, tid := x.ID, x.TweetID
-		safeGo("views", func() { a.sampleViews(sid, tid) })
+		a.spawn("views", func() { a.sampleViews(sid, tid) })
 	}
 	if recheck > 0 {
 		a.notify(w.ID, "verify", "验证通过", fmt.Sprintf("推文需保留 %s，复检通过后进入待付款。", dur(t.RetentionH)), x.Path())

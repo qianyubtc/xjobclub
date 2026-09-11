@@ -400,7 +400,7 @@ func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 		b.Todo = a.todoCount(b.Me)
 		if b.Me.Followers < 0 && a.lim.allow("followers-bg:"+strconv.FormatInt(b.Me.ID, 10), 1, time.Hour) {
 			me := *b.Me
-			safeGo("followers", func() { a.refreshFollowers(&me, false) })
+			a.spawn("followers", func() { a.refreshFollowers(&me, false) })
 		}
 		b.PayDueN = a.st.count(`SELECT COUNT(*) FROM submissions x JOIN tasks t ON t.id=x.task_id WHERE t.owner_id=? AND x.status IN ('payable','overdue')`, b.Me.ID)
 		if a.cfg.ReviewEnabled {
@@ -647,6 +647,20 @@ func hue(key string) int {
 func (a *App) notify(userID int64, kind, title, body, link string) {
 	a.st.Notify(userID, kind, title, body, link)
 	a.tgPush(userID, title, body, link)
+}
+
+// spawn 请求线程里起后台活：关站中不再起新协程，起了的算进 wg，Close 会等它们跑完再关库。
+func (a *App) spawn(name string, f func()) {
+	select {
+	case <-a.stop:
+		return
+	default:
+	}
+	a.wg.Add(1)
+	safeGo(name, func() {
+		defer a.wg.Done()
+		f()
+	})
 }
 
 func (a *App) redirectBack(w http.ResponseWriter, r *http.Request, def string) {

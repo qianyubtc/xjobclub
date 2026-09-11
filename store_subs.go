@@ -129,7 +129,7 @@ func (s *Store) SetSubmitted(id int64, tweetID, url string) (bool, error) {
 
 // SetVerifyFailed 验证不通过：回到 claimed，清掉推文 ID（让这条推文能换别的记录用……不能，推文只能给本人用；但清掉便于重提）。
 func (s *Store) SetVerifyFailed(id int64, reason string) (bool, error) {
-	return s.transition(id, []string{SSubmit}, SClaimed, `last_error=?, tweet_id='', next_verify_at=0`, reason)
+	return s.transition(id, []string{SSubmit}, SClaimed, `last_error=?, tweet_id='', tweet_root='', next_verify_at=0`, reason)
 }
 
 func (s *Store) SetVerifyRetry(id, nextAt int64, reason string) (bool, error) {
@@ -198,7 +198,7 @@ func (s *Store) SetVoid(id int64, from []string, reason string) (bool, error) {
 }
 
 func (s *Store) SetExpired(id int64) (bool, error) {
-	return s.transition(id, []string{SClaimed, SSubmit}, SExpired, "")
+	return s.transition(id, []string{SClaimed, SSubmit}, SExpired, `tweet_id='', tweet_root=''`)
 }
 
 func (s *Store) SetOverdue(id int64) (bool, error) {
@@ -456,9 +456,9 @@ type PublicRecord struct {
 }
 
 var publicStatuses = map[string][]string{
-	"":        {SClaimed, SSubmit, SVerified, SPayable, SAwait, SOverdue, SDisputed, SPaid, SDefault},
+	"":        {SClaimed, SSubmit, SChecking, SVerified, SPayable, SAwait, SOverdue, SDisputed, SPaid, SDefault},
 	"done":    {SPaid},
-	"active":  {SClaimed, SSubmit, SVerified, SPayable, SAwait, SDisputed},
+	"active":  {SClaimed, SSubmit, SChecking, SVerified, SPayable, SAwait, SDisputed},
 	"overdue": {SOverdue, SDefault},
 }
 
