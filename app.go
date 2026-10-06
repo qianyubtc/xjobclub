@@ -36,6 +36,7 @@ type App struct {
 	session    []byte
 	gwc        *bpaygate.Client // nil = 未配置网关
 	origin     string
+	csp        string        // 安全策略头（connect-src 按 LANBUZHU_URL 放行蓝不住）
 	fetchSem   chan struct{} // 推文抓取并发闸
 	cssVer     string        // 静态样式内容哈希，做缓存穿透
 	tg         *tgBot        // Telegram 推送（nil = 未配置）
@@ -68,6 +69,7 @@ type Base struct {
 	Gateway   bool // 网关是否配置
 	Now       int64
 	CSSVer    string
+	LBZ       string // 蓝不住地址（LANBUZHU_URL，空 = 不出「X 数据」）
 }
 
 var pages = []string{"index", "task", "new", "sub", "me", "paysettings", "profile", "blacklist", "dispute", "court", "courtcase", "verify", "login", "rules", "admin", "adminuser", "error", "notifications", "certfee", "records", "review", "adminstats"}
@@ -93,6 +95,11 @@ func newApp(cfg *Config) (*App, error) {
 	if u, err := url.Parse(cfg.BaseURL); err == nil {
 		a.origin = u.Scheme + "://" + u.Host
 	}
+	connect := "'self'"
+	if u, err := url.Parse(cfg.LanbuzhuURL); err == nil && cfg.LanbuzhuURL != "" && u.Host != "" {
+		connect += " " + u.Scheme + "://" + u.Host
+	}
+	a.csp = "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src " + connect + "; frame-ancestors 'none'; form-action 'self' https://x.com"
 	if cfg.BPGURL != "" {
 		a.gwc = bpaygate.New(cfg.BPGURL, cfg.BPGKey)
 	}
@@ -297,6 +304,7 @@ func (a *App) routes() {
 	m.HandleFunc("POST /me/cert", a.handleCertPost)
 	m.HandleFunc("GET /me/cert/status", a.handleCertStatus)
 	m.HandleFunc("GET /u/{handle}", a.handleProfile)
+	m.HandleFunc("GET /api/x/{handle}", a.handleXAPI) // 芊羽其他产品按 X 用户名问有没有主页（xlink.go）
 	// 任务
 	m.HandleFunc("GET /new", a.handleNewGet)
 	m.HandleFunc("POST /new", a.handleNewPost)
@@ -357,7 +365,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(a.cfg.BaseURL, "https://") {
 		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
-	h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; form-action 'self' https://x.com")
+	h.Set("Content-Security-Policy", a.csp)
 	if r.URL.Path != "/bpg/notify" {
 		limit := int64(64 << 10)
 		if strings.HasPrefix(r.URL.Path, "/d/") && strings.HasSuffix(r.URL.Path, "/message") {
@@ -391,7 +399,7 @@ func (a *App) sameOrigin(r *http.Request) bool {
 
 func (a *App) base(w http.ResponseWriter, r *http.Request) Base {
 	b := Base{SiteTitle: a.cfg.SiteTitle, BaseURL: a.cfg.BaseURL, RepoURL: a.cfg.RepoURL, AuthorX: a.cfg.AuthorX, IsMobile: isMobile(r), InApp: inAppBrowser(r.UserAgent()),
-		Path: r.URL.Path, Gateway: a.gwc != nil, Now: ms(), CSSVer: a.cssVer}
+		Path: r.URL.Path, Gateway: a.gwc != nil, Now: ms(), CSSVer: a.cssVer, LBZ: a.cfg.LanbuzhuURL}
 	b.Me = a.currentUser(r)
 	if b.Me != nil {
 		b.MeID = b.Me.ID

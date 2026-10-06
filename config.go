@@ -36,6 +36,7 @@ type Config struct {
 	XTweetAPI   string // 推文抓取接口基址（测试时指向 mock）
 	XSyndAPI    string // X 嵌入时间线接口（粉丝数第一来源）
 	XProfileAPI string // FxTwitter 风格的公开镜像接口（粉丝数第二来源）
+	LanbuzhuURL string // 蓝不住（https://lanbuzhu.org）：个人主页「X 数据」去问它收录了没有；留空 = 不启用（开源默认，线上 config.env 里填）
 
 	// 任务参数
 	MinRewardE8      int64
@@ -197,9 +198,13 @@ func loadConfig(path string) (*Config, error) {
 		XTweetAPI:   strings.TrimRight(get("X_TWEET_API", "https://cdn.syndication.twimg.com"), "/"),
 		XSyndAPI:    strings.TrimRight(get("X_SYND_API", "https://syndication.twitter.com"), "/"),
 		XProfileAPI: strings.TrimRight(get("X_PROFILE_API", "https://api.fxtwitter.com"), "/"),
+		LanbuzhuURL: strings.TrimRight(get("LANBUZHU_URL", ""), "/"),
 
 		AdminHandles: map[string]bool{},
 		JuryTypes:    map[string]bool{},
+	}
+	if c.LanbuzhuURL != "" && !strings.HasPrefix(c.LanbuzhuURL, "https://") && !strings.HasPrefix(c.LanbuzhuURL, "http://") {
+		return nil, errors.New("LANBUZHU_URL 须以 http:// 或 https:// 开头（留空不启用）")
 	}
 	for _, h := range strings.Split(get("ADMIN_HANDLES", ""), ",") {
 		h = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(h), "@")))

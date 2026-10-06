@@ -2888,3 +2888,104 @@ func TestOverdueAutoDefaultReportedAndConfirm(t *testing.T) {
 		t.Fatalf("exactly one final warning expected, got %d", n)
 	}
 }
+
+// ---- 芊羽其他产品按 X 用户名问主页（xlink.go） ----
+
+func TestXProfileLookup(t *testing.T) {
+	e := newEnv(t, "LANBUZHU_URL=https://lanbuzhu.example/\n")
+	b := e.browser("alice")
+	b.register("Alice_X", "9701")
+	old := e.browser("old")
+	ou := old.register("dupname", "9801")
+	e.browser("imp").register("dupname", "9802")
+	ou, _ = e.a.st.GetUserByID(ou.ID)
+	for h, st := range map[string]string{"badguy": "banned", "debtor": "blacklisted"} {
+		u := e.browser(h).register(h, map[string]string{"badguy": "9901", "debtor": "9902"}[h])
+		if err := e.a.st.SetUserStatus(u.ID, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := func(h string) map[string]any {
+		resp, body := b.get("/api/x/" + h)
+		if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+			t.Fatalf("/api/x/%s: %d %s", h, resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(body), &m); err != nil {
+			t.Fatalf("json: %s", body)
+		}
+		return m
+	}
+	if m := api("alice_x"); m["url"] != "http://test.local/u/Alice_X" || m["handle"] != "Alice_X" || m["xid"] != "9701" {
+		t.Fatalf("registered user: %v", m)
+	}
+	if m := api("@ALICE_X"); m["url"] != "http://test.local/u/Alice_X" {
+		t.Fatalf("@ and case: %v", m)
+	}
+	if m := api("dupname"); m["url"] != "http://test.local/u/dupname" || m["xid"] != "9802" {
+		t.Fatalf("taken-over handle should point to the new owner only: %v", m)
+	}
+	for _, h := range []string{"badguy", "debtor", "nobody", "bad-name!"} {
+		if m := api(h); m["url"] != nil {
+			t.Fatalf("%s should have no url (banned / blacklisted / not registered / invalid): %v", h, m)
+		}
+	}
+	// 主页带「X 数据」入口：默认藏着（蓝不住收录了、X 数字 ID 也对得上才露出）；CSP 放行配置的蓝不住地址；用户名被顶替的旧号主页不带
+	resp, body := b.get("/u/Alice_X")
+	if !strings.Contains(body, `id="lbzx" href="https://lanbuzhu.example/"`) || !strings.Contains(body, `data-lbz="https://lanbuzhu.example"`) || !strings.Contains(body, `data-h="Alice_X" data-xid="9701"`) || !strings.Contains(body, `hidden>X 数据 ↗</a>`) || !strings.Contains(body, "/api/x/") {
+		t.Fatalf("profile should carry the hidden X-data link")
+	}
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self' https://lanbuzhu.example;") {
+		t.Fatalf("CSP: %s", csp)
+	}
+	if !ou.HandleStale {
+		t.Fatalf("old user should be stale")
+	}
+	if _, body := old.get(ou.Path()); strings.Contains(body, `id="lbzx"`) || strings.Contains(body, "/api/x/") {
+		t.Fatalf("stale profile must not link the handle's lanbuzhu data")
+	}
+	// 经反代来的（带 X-Real-IP）每 IP 每分钟 120 次；同机直连（不带转发头，蓝不住就是这样来问的）不限
+	last := 0
+	for i := 0; i < 121; i++ {
+		r, _ := b.get("/api/x/alice_x")
+		last = r.StatusCode
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("121st proxied request should be limited: %d", last)
+	}
+	for i := 0; i < 125; i++ {
+		r, err := http.Get(e.srv.URL + "/api/x/alice_x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		if r.StatusCode != 200 {
+			t.Fatalf("direct local request %d should not be limited: %d", i+1, r.StatusCode)
+		}
+	}
+}
+
+// 没配 LANBUZHU_URL（开源默认）：不出入口、不带查询脚本，CSP 也不放行外站；查库出错回 503（别说成「没有这个人」）
+func TestXProfileLookupDefaults(t *testing.T) {
+	e := newEnv(t, "")
+	b := e.browser("alice")
+	b.register("Alice_X", "9701")
+	resp, body := b.get("/u/Alice_X")
+	if strings.Contains(body, "lbzx") || strings.Contains(body, "/api/x/") {
+		t.Fatalf("no LANBUZHU_URL: profile must not carry the link or script")
+	}
+	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "connect-src 'self';") {
+		t.Fatalf("CSP: %s", csp)
+	}
+	if _, err := e.a.st.db.Exec(`ALTER TABLE users RENAME TO users_gone`); err != nil {
+		t.Fatal(err)
+	}
+	r, err := http.Get(e.srv.URL + "/api/x/alice_x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Body.Close()
+	if r.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("db error should be 503: %d", r.StatusCode)
+	}
+}

@@ -1,7 +1,7 @@
 {{define "title"}}@{{.U.Handle}} · {{.SiteTitle}}{{end}}
 {{define "content"}}
 <section class="card">
-  <div class="row between"><div class="userline">{{if .U.AvatarURL}}<img class="av lg" src="{{.U.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="av lg" style="background:hsl({{hue .U.Handle}},45%,45%)">{{initial .U.Handle}}</span>{{end}}<span><b style="font-size:18px">{{.U.Name}}</b><br><a href="{{xlink .U.XID .U.Handle}}" target="_blank" rel="noopener">@{{.U.Handle}} ↗</a></span></div>
+  <div class="row between"><div class="userline">{{if .U.AvatarURL}}<img class="av lg" src="{{.U.AvatarURL}}" alt="" referrerpolicy="no-referrer">{{else}}<span class="av lg" style="background:hsl({{hue .U.Handle}},45%,45%)">{{initial .U.Handle}}</span>{{end}}<span><b style="font-size:18px">{{.U.Name}}</b><br><a href="{{xlink .U.XID .U.Handle}}" target="_blank" rel="noopener">@{{.U.Handle}} ↗</a>{{if and .LBZ (not .U.HandleStale)}}<a id="lbzx" href="{{.LBZ}}/" target="_blank" rel="noopener" data-lbz="{{.LBZ}}" data-h="{{.U.Handle}}" data-xid="{{.U.XID}}" title="在蓝不住看 TA 每天的发帖、曝光、涨粉" style="margin-left:12px" hidden>X 数据 ↗</a>{{end}}</span></div>
   <div class="row small"><span>发布 <span class="tier">{{.PubTier.Name}}</span></span><span>接单 <span class="tier">{{.WorkerTier.Name}}</span></span>{{if .Certified}}<span class="st good">已认证付款</span>{{end}}{{if .ActiveBL}}<span class="st bad">黑名单</span>{{end}}</div></div>
   <div class="stats" style="margin-top:12px"><div><b class="num">{{.Stats.PaidCredit}}</b><span>计信用付款</span></div><div><b class="num">{{.Stats.Paid}}</b><span>已付款</span></div><div><b class="num" {{if .Stats.Overdue}}style="color:var(--bad)"{{end}}>{{.Stats.Overdue}}</b><span>逾期</span></div><div><b class="num" {{if .Stats.Defaulted}}style="color:var(--bad)"{{end}}>{{.Stats.Defaulted}}</b><span>违约</span></div><div><b class="num">{{avgDur .Stats.AvgPayMs}}</b><span>平均付款用时</span></div><div><b class="num">{{.WStats.Done}}</b><span>完成接单</span></div><div><b class="num">{{.WStats.Void30d}}</b><span>30 天留存不达标</span></div><div><b class="num">{{.U.JuryScore}}</b><span>陪审分</span></div></div>
   <div class="small muted">{{if ge .U.Followers 0}}粉丝 {{.U.Followers}} · {{end}}注册于 {{fdate .U.CreatedAt}}{{if .XCreated}} · X 账号约创建于 {{fdate .XCreated}}{{end}}{{if .Stats.Frozen}} · <b style="color:var(--bad)">冻结中（有逾期未付）</b>{{end}}{{if .Stats.CheckVoids}}<div class="notice warn small">有 {{.Stats.CheckVoids}} 条点赞 / 转发记录因两次核对未见到而作废。</div>{{end}}</div>
@@ -10,3 +10,10 @@
 {{if .Done}}<section class="card"><div class="sec-h"><h2>最近完成的单</h2><span class="eyebrow">{{len .Done}} 条</span></div><div class="pubs">{{range .Done}}<div class="pub"><a href="/t/{{.TaskCode}}">{{.TaskTitle}}</a><span class="amt">{{amt .RewardE8}} U</span>{{if .TweetID}}<a class="small" href="https://x.com/i/web/status/{{.TweetID}}" target="_blank" rel="noopener">推文 ↗</a>{{end}}<span class="muted tiny">{{ago .ConfirmedAt}}</span></div>{{end}}</div></section>{{end}}
 {{if .Tasks}}<section class="card flat"><h2 style="margin-top:0">在线任务</h2>{{range .Tasks}}<div><a href="{{.Path}}">{{.Title}}</a> · <span class="amt">{{amt .RewardE8}} U</span> · 剩 {{.Left}}</div>{{end}}</section>{{end}}
 {{end}}
+{{define "scripts"}}{{if and .LBZ (not .U.HandleStale)}}<script>
+// 蓝不住（X 中文区数据）收录了这个号才露出「X 数据」：问不到、没收录、X 数字 ID 对不上（改过名、旧名被别人注册）就一直藏着
+(function(){var p=document.getElementById('lbzx');if(!p||!window.fetch)return;var o=p.dataset.lbz;
+  fetch(o+'/api/x/'+encodeURIComponent(p.dataset.h)+(p.dataset.xid?'?xid='+encodeURIComponent(p.dataset.xid):'')).then(function(r){return r.ok?r.json():null}).then(function(j){
+    var u=j&&j.data;if(typeof u!=='string'||u.indexOf(o+'/')!==0)return;u=u.split('#')[0];
+    p.href=u+(u.indexOf('?')<0?'?':'&')+'from=tuil';p.hidden=false}).catch(function(){})})();
+</script>{{end}}{{end}}
