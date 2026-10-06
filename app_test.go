@@ -2953,6 +2953,21 @@ func TestXProfileLookup(t *testing.T) {
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("121st proxied request should be limited: %d", last)
 	}
+	// 线上 Caddy 只加 X-Forwarded-For：带它的也算经反代来的（这台机器的配置里信的是 X-Real-IP，所以按 127.0.0.1 一个桶）
+	last = 0
+	for i := 0; i < 121; i++ {
+		req, _ := http.NewRequest("GET", e.srv.URL+"/api/x/alice_x", nil)
+		req.Header.Set("X-Forwarded-For", "203.0.113.9")
+		r, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		last = r.StatusCode
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("121st request carrying only X-Forwarded-For should be limited: %d", last)
+	}
 	for i := 0; i < 125; i++ {
 		r, err := http.Get(e.srv.URL + "/api/x/alice_x")
 		if err != nil {
@@ -2987,5 +3002,27 @@ func TestXProfileLookupDefaults(t *testing.T) {
 	r.Body.Close()
 	if r.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("db error should be 503: %d", r.StatusCode)
+	}
+}
+
+// LANBUZHU_URL：去掉末尾斜杠；不是网站地址的启动就报错（免得入口一直默默藏着、CSP 也不放行）
+func TestLanbuzhuURLConfig(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.env")
+	load := func(v string) (*Config, error) {
+		if err := os.WriteFile(p, []byte("LANBUZHU_URL="+v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return loadConfig(p)
+	}
+	if c, err := load("https://lanbuzhu.org/"); err != nil || c.LanbuzhuURL != "https://lanbuzhu.org" {
+		t.Fatalf("trailing slash: %v %+v", err, c)
+	}
+	if c, err := load(""); err != nil || c.LanbuzhuURL != "" {
+		t.Fatalf("empty: %v", err)
+	}
+	for _, bad := range []string{"lanbuzhu.org", "javascript:alert(1)", "https://", "ftp://lanbuzhu.org", "https://lanbuzhu.org/?a=1"} {
+		if _, err := load(bad); err == nil {
+			t.Fatalf("%q should be rejected", bad)
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -203,8 +204,10 @@ func loadConfig(path string) (*Config, error) {
 		AdminHandles: map[string]bool{},
 		JuryTypes:    map[string]bool{},
 	}
-	if c.LanbuzhuURL != "" && !strings.HasPrefix(c.LanbuzhuURL, "https://") && !strings.HasPrefix(c.LanbuzhuURL, "http://") {
-		return nil, errors.New("LANBUZHU_URL 须以 http:// 或 https:// 开头（留空不启用）")
+	if c.LanbuzhuURL != "" {
+		if u, err := url.Parse(c.LanbuzhuURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+			return nil, errors.New("LANBUZHU_URL 须是 http:// 或 https:// 开头的网站地址（留空不启用）")
+		}
 	}
 	for _, h := range strings.Split(get("ADMIN_HANDLES", ""), ",") {
 		h = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(h), "@")))
